@@ -4,6 +4,7 @@
   height: 75vh;
   .print-preview {
     flex: 1;
+    min-width: 0;
     overflow-x: hidden;
     overflow-y: scroll;
     position: relative;
@@ -80,11 +81,12 @@
   }
   .pdf-canvas-page {
     width: 100%;
-    height: 100%;
+    height: auto;
+    margin-bottom: 12px;
     border: 1px solid var(--background-modifier-border);
   }
 
-  .pdf-canvas-page :global(canvas) {
+  .pdf-canvas-page canvas {
     width: 100% !important;
     height: auto !important;
     display: block;

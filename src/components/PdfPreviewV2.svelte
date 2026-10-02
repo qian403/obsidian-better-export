@@ -14,7 +14,7 @@
   import * as os from "os";
   import * as path from "path";
   import { editPDF, getOutputFile, getOutputPath, makePrintOptions, writePdfFile } from "../pdf";
-  import Switch from "./Switch.svelte";
+  import PreviewToolbar from "./PreviewToolbar.svelte";
   import { Mutex, printMutex } from "../utils/mutex";
   import { initRenderStates, completeRenderState, type RenderState } from "../utils/renderStates";
   import { PageSizeCalculator } from "../utils/pageSize";
@@ -37,7 +37,7 @@
   let canvasDocs = $state<HTMLCanvasElement[]>([]);
   let disposed = false;
   let lastPdfKey = "";
-  let revision = 0;
+  let revision = $state(0);
   let initialRender: Promise<void> | undefined;
   const resources = new Set<DocV2Type>();
   const previewMutex = new Mutex();
@@ -202,7 +202,7 @@
   async function renderPdf() {
     return previewMutex.run(async () => {
       await initialRender;
-      if (disposed || !docs.length) return;
+      if (disposed || !docs.length || !isPDF || config.format !== "pdf") return;
       const key = JSON.stringify({ config: $state.snapshot(config), revision });
       if (key === lastPdfKey) return;
       rendering = true;
@@ -236,6 +236,7 @@
           lastPdfKey = key;
         }
       } catch (error) {
+        isPDF = false;
         reportError(error);
       } finally {
         if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(console.error);
@@ -249,14 +250,9 @@
     document.win.electron.remote.getCurrentWebContents().openDevTools();
   }
 
-  async function toggleModel(model: string) {
-    isPDF = model === "pdf";
-    if (isPDF) await renderPdf();
-  }
-
   $effect(() => {
     // Read config reactively, but keep canvas/rendering state out of dependencies.
-    const key = JSON.stringify(config);
+    const key = JSON.stringify({ config, revision });
     if (config.format !== "pdf") { isPDF = false; return; }
     if (!isPDF) return;
     const timer = setTimeout(() => { void renderPdf(); }, 300);
@@ -280,15 +276,8 @@
       {/each}
     {/if}
   </div>
-  {#if rendering}
-    <div class="rendering">
-      <span use:icon={"loader"} style="animation: spin 1s linear infinite;max-width:18px;max-height:18px;"></span>
-      <span>{i18n.exportDialog.rendering}</span>
-    </div>
-  {/if}
-  {#if config.format === "pdf"}
-  <Switch initialMode="html" onChange={toggleModel} htmlLabel={i18n.exportDialog.htmlPreview} pdfLabel={i18n.exportDialog.pdfPreview}></Switch>
-  {/if}
+  <PreviewToolbar {i18n} pdfAvailable={config.format === "pdf"} {isPDF} {rendering}
+    onModeChange={(value) => { isPDF = value; }} />
   <div bind:this={previewEl}>
     <div class="preview-wrapper">
       <div class="print-preview-container" style="--modal-scale: {scale};" style:display={isPDF ? "none" : "block"}>
@@ -302,7 +291,7 @@
           <div class="print-preview-item" use:mountNode={item.doc} use:measurePreviewItem={i}></div>
         {/each}
       </div>
-      <div style:display={isPDF ? "block" : "none"}>
+      <div aria-busy={rendering} style:display={isPDF ? "block" : "none"} style:opacity={rendering ? 0.4 : 1}>
         {#each canvasDocs as canvas (canvas)}
           <div class="pdf-canvas-page" use:mountCanvas={canvas}></div>
         {/each}
@@ -310,13 +299,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .rendering {
-    position: absolute;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-  }
-</style>

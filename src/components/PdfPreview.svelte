@@ -16,6 +16,7 @@
   import { PageSizeCalculator } from "../utils/pageSize";
   import { Mutex } from "../utils/mutex";
   import pLimit from "p-limit";
+  import PreviewToolbar from "./PreviewToolbar.svelte";
   const fs = require("fs").promises;
 
   let {
@@ -236,6 +237,7 @@
 </script>
 
 <div class="print-preview">
+  <PreviewToolbar {i18n} />
   <div class="progress">
     {#if renderStates.length > 0 && !renderStates.every((item) => item.status)}
       <div>{i18n.exportDialog.rendering}</div>
