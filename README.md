@@ -1,159 +1,114 @@
 # Obsidian Better Export
 
-English | [简体中文](./README.zh.md) | [繁體中文](./README.zh-TW.md)
+English | [繁體中文](./README.zh-TW.md) | [简体中文](./README.zh.md)
 
-Better Export exports Obsidian notes to PDF, DOCX, HTML, Markdown, plain text and RTF. It supports combined and batch exports, English / 简体中文 / 繁體中文, and optional bottom-left and bottom-right annotations.
+Export Obsidian notes to PDF, Word, HTML, Markdown, plain text, and RTF, with previews, combined or batch exports, and custom footer annotations.
+
+This project is a fork of [Better Export PDF by l1xnan](https://github.com/l1xnan/obsidian-better-export-pdf), maintained and extended by [qian403](https://github.com/qian403). See [Origin and license](#origin-and-license) for attribution.
 
 ## Features
 
-Compared to the official Export PDF feature:
-
-- 🚀Support export preview
-- 🎉Export the outline bookmarks
-- 🛩️Customize the margins
-- ✨Export the page numbers
-- 💥Support add PDF metadata from front matter
-- 🎇Export internal links within file
-- 🎈Export multiple Markdown files(folder or specified files) into one PDF file
-- 🌸Batch export multiple PDF files
-- 🍬Support exporting PDFs in any size, and can export all content onto a single page
-- ... ...
+- Six export formats: PDF, DOCX, HTML, Markdown, TXT, and RTF.
+- Content preview for checking notes and PDF page preview for checking pagination.
+- Optional text in the bottom-left and bottom-right corners of each page in paged formats.
+- Combined folder exports, separate files in batch exports, and a TOC note for custom ordering.
+- Optional appendices containing directly linked notes, without recursive expansion.
+- English, Traditional Chinese, and Simplified Chinese, or follow Obsidian's language.
+- PDF bookmarks, metadata, internal links, custom page sizes, margins, and header/footer templates.
 
 ## Installation
 
-Use the local build or manual installation below. This renamed fork uses plugin ID `better-export`; a community listing under the new ID is not assumed.
+This is a desktop-only plugin. The plugin ID for this fork is `better-export`.
 
-### Manual installation
+Build an installation package using the [development commands](#development), or use a packaged ZIP if one is available on this fork's [Releases page](https://github.com/qian403/obsidian-better-export/releases).
 
-1. Download the .zip file from [the latest Release](https://github.com/qian403/obsidian-better-export/releases), or from any other release version.
-2. Unzip into: `{VaultFolder}/.obsidian/plugins/`
-3. Reload Obsidian and enable the plug-in.
+1. Extract `dist/obsidian-better-export.zip` from a local build, or the downloaded plugin package.
+2. Place the `better-export` folder in `Your Vault/.obsidian/plugins/`.
+3. Check that it contains `main.js`, `manifest.json`, and `styles.css`.
+4. Reload Obsidian and enable **Better Export** in Community plugins.
 
-or use the [BRAT Plugin](https://obsidian.md/plugins?id=obsidian42-brat).
+To migrate settings from the original plugin, copy `.obsidian/plugins/better-export-pdf/data.json` into `.obsidian/plugins/better-export/`. Disable the original plugin to avoid duplicate export menus.
 
-## Usage
+For a separate test vault and a manual checklist, see [TESTING.md](./TESTING.md).
 
-1. Select export target:
-   1. In the upper right corner of the current Markdown view, click More options and select `Better Export`;
-   2. Open the command panel and select `Better Export: Export current file`.
-2. In the dialog box that is displayed, modify the configuration.
-3. Choose an export format, click `Export`, and select the export path, and if you don't need to modify the configuration, you can directly press the `Enter` key to trigger the export operation.
+## Quick start
 
-### Set the header and footer
+1. Right-click a note and select **Export file…**, or run **Better Export: Export current file** from the command palette.
+2. Choose the **Export format** on the right.
+3. Adjust the available page settings and optional footer annotations.
+4. Check the preview, then click **Export** and choose a destination.
 
-Set page numbers using the `Header Template` and `Footer Template`, for example:
+Cancelling the save dialog keeps the export window open.
 
-```html
-<div style="width: 100vw;font-size:10px;text-align:center;">
-  <span class="pageNumber"></span> / <span class="totalPages"></span>
-</div>
-```
+### Understanding the preview
 
-See details [`<webview>.printToPDF(options)`](https://www.electronjs.org/docs/latest/api/webview-tag#webviewprinttopdfoptions).
+| Preview | What it shows |
+| --- | --- |
+| Content preview | A quick view of note text and images. It does not show final page breaks, headers, or footers. |
+| PDF page preview | PDF pagination, margins, headers, and footers. It regenerates when settings change. |
 
-It can be any HTML fragment, such as adding a base64 image:
+**Preview mode does not change the export format.** Choose the file format in the settings on the right. PDF page preview is available when exporting PDF with the default **v2** engine. Other formats and the v1 engine show content preview; open the exported file to check its final formatting.
 
-```html
-<div style="width: 100vw;font-size:10px;text-align:center;">
-  <img height="10px" width="10px" src="data:image/svg+xml;base64,xxx..." />
-  <span class="title"></span>
-</div>
-```
+### Formats and footer annotations
 
-Document level header/footer templates can also be configured in frontMatter:
+| Format | Content | Annotation placement |
+| --- | --- | --- |
+| PDF | Print layout, bookmarks, metadata, and internal links | Every page |
+| DOCX | Editable headings, lists, tables, links, and images | Word page footer |
+| HTML | Standalone page with embedded local images | On printed pages; optional offline pagination |
+| Markdown | Original Markdown, with optional file-name titles | End of the document |
+| TXT | UTF-8 text with readable lists and tables | End of the document |
+| RTF | Headings, emphasis, tables, and links; image descriptions | Page footer |
 
-- `headerTemplate`
-- `footerTemplate`
+Enable either or both corner annotations and enter the text in the export dialog. These annotations are independent of the PDF page-number footer.
 
-### Customize the export style
+DOCX layout depends on Word or LibreOffice and does not use Obsidian theme CSS or PDF HTML header/footer templates. Audio and video are not embedded in DOCX or RTF.
 
-If you want to further customize the PDF export style, you can add custom CSS in the `Appearance > CSS Snippet`, such as custom fonts and sizes:
+For HTML exports, **Paginated HTML (Paged.js)** adds pagination to the exported HTML file. It works offline and requires JavaScript in the browser. This option is separate from the preview mode in the export dialog.
 
-```css
-@media print {
-  body {
-    --font-interface-override: "Times New Roman" !important;
-    --font-text-override: "Times New Roman" !important;
-    --font-print-override: "Times New Roman" !important;
-    --font-monospace-override: "Consolas" !important;
-    --font-text-size: 20px !important;
-    font-family: "Times New Roman" !important;
-  }
-}
-```
+## Multiple notes
 
-### Select Disabled CSS Snippts
+- **Combine a folder:** right-click a folder and choose **Export folder…**. Notes are ordered by relative path.
+- **Export separate files:** right-click a folder, then choose **Export documents… → Export each file…**. Relative subfolders are preserved so identically named notes stay separate.
+- **Append linked notes:** enable **Append linked notes** in plugin settings. Combined exports append directly linked Markdown notes once, in link order, without recursively following links in the appended notes.
 
-First, enable the `Select CSS snippets` option in the plugin configuration. This will allow you to see the `CSS snippets` option in the modal for exporting PDFs. From there, you can choose CSS snippets that have not been globally enabled in the `Appearance > CSS Fragments` section.
-
-### Add PDF metadata
-
-PDF Metadata can be added to through frontMatter of the configuration document. Supported field items are:
-
-- `title`
-- `author`
-- `keywords`
-- `created_at`
-- `updated_at`
-- `creator`
-- `producer`
-
-### Export multiple Markdown files
-
-#### Quick export
-
-Select the folder in the sidebar, right-click the menu `Export folder to PDF`, you can export the entire folder contents to a PDF file.
-
-Notes are exported in relative-path order. A TOC note lets you specify a custom order.
-
-#### Custom export
-
-Create a new table of contents note, add something like the following, need to add a `toc: true` document property:
+To choose a custom order, create and export a TOC note:
 
 ```markdown
 ---
 toc: true
 ---
 
-## Table of Contents
+# Contents
 
-[[Note1|Title1]]
-[[Note2]]
-[[Note2]]
+[[Note 1|Introduction]]
+[[Note 2]]
+[[Note 3]]
 ```
 
-This allows the plugin to export the notes in the order of the internal links. The anchor point of the exported PDF table of contents supports clicking to jump.
+Export this note rather than its containing folder. The TOC note comes first, followed by the linked notes. PDF, DOCX, and HTML preserve supported document-internal links.
 
-**Note**: When exporting with a Table of Contents file, right click on that toc-file and select `Better Export`. Do not use `Export Folder to PDF`.
+## PDF customization
 
-### Folder batch export
+In plugin settings, configure **Header template** and **Footer template**. For example, this footer displays the current page and total page count:
 
-Select the folder in the sidebar, right-click the menu `Export each file to PDF`, you can batch export each file of the entire folder to PDF file.
+```html
+<div style="width:100%;font-size:10px;text-align:center;">
+  <span class="pageNumber"></span> / <span class="totalPages"></span>
+</div>
+```
 
-### Export as One Page
+The templates also support the `date`, `title`, and `url` classes. A note's properties can override `headerTemplate` and `footerTemplate`.
 
-In the export dialog, select `Custom` for **Page Size** and set **Margin** to `None`. Set the page size according to the document's requirements.
+Enable **PDF metadata** to include note properties such as `title`, `author`, `keywords`, `subject`, `creator`, `created_at`, and `updated_at`.
 
----
+Use Obsidian CSS snippets with `@media print` to customize print styles. Enable **Enable CSS snippet selection** in plugin settings to choose a snippet that is not globally enabled. For an explicit page break, add this to a note:
 
-**Note:** You can adjust the concurrency number during the rendering phase when exporting multiple files via `Plugin Settings > Limit Concurrency`. This can help reduce resource consumption or increase the speed. The default value is 5.
+```html
+<div class="break-page"></div>
+```
 
-## Export formats and annotations
-
-| Format | Content | Annotation behavior |
-| --- | --- | --- |
-| PDF | Print layout, bookmarks, metadata | Repeats on every page |
-| DOCX | Editable headings, lists, tables, links and images | Native Word footer on every page |
-| HTML | Standalone page with embedded local images | Repeats in print; optional offline Paged.js preview |
-| Markdown | Original source, optional file-name title and combined notes | Appended at the end |
-| TXT | UTF-8 text with readable lists and tables | Appended at the end |
-| RTF | Headings, emphasis, tables and links; image descriptions | Native page footer |
-
-In the export dialog, choose the format and enable bottom-left and/or bottom-right annotation text. Annotations are independent of the page-number footer. Page-based outputs reserve footer space automatically. Word does not use Obsidian theme CSS or PDF HTML header/footer templates; audio/video are not embedded in Word/RTF.
-
-Plugin settings include **Language** (follow Obsidian or choose one of three languages) and **Append linked notes**. Appendices collect directly linked Markdown notes once in link order, without recursively following appended notes. They apply to combined exports; batch exports keep each note separate. Batch outputs preserve relative subfolders to prevent duplicate filenames from overwriting one another.
-
-See [testing instructions](./TESTING.md) for the ready-to-open scratch vault and migration from `better-export-pdf` to `better-export`.
+The plugin includes a print rule for this class. For custom sheet dimensions, choose **Custom** under **Page size** and enter the width and height.
 
 ## Development
 
@@ -161,36 +116,27 @@ See [testing instructions](./TESTING.md) for the ready-to-open scratch vault and
 ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --frozen-lockfile
 pnpm check
 pnpm test
-pnpm test:browser  # installed Chrome, or BETTER_EXPORT_BROWSER_PATH
+pnpm test:browser
 pnpm package
 ```
 
-`pnpm package` produces `dist/obsidian-better-export.zip` and an isolated test-vault ZIP. `pnpm build` uses esbuild; `pnpm build:vite` writes an alternative build to `dist/vite`. The plugin folder is `better-export`.
+Browser tests use installed Chrome, or a Chromium executable specified by `BETTER_EXPORT_BROWSER_PATH`. They include mocked Obsidian APIs; use the manual checklist in [TESTING.md](./TESTING.md) to verify the full Obsidian workflow.
 
-## Preview
+`pnpm package` produces:
 
-### Export preview
+- `dist/obsidian-better-export.zip` — installable plugin.
+- `dist/obsidian-better-export-test-vault.zip` — a separate vault with sample notes and the plugin installed.
 
-![Export preview](./assets/preview0.png)
+`pnpm build` uses esbuild. `pnpm build:vite` writes an alternative build to `dist/vite`.
 
-### Effect picture
+## Origin and license
 
-![Export preview](./assets/preview1.png)
+This project is modified from **[l1xnan/obsidian-better-export-pdf](https://github.com/l1xnan/obsidian-better-export-pdf)**. The original author, **l1xnan**, and upstream contributors built the PDF export foundation used here.
 
-## TODO
+This fork, **[qian403/obsidian-better-export](https://github.com/qian403/obsidian-better-export)**, extends that foundation with multiple document formats, language selection, corner annotations, linked-note appendices, and clearer preview controls. Its plugin ID is `better-export`; the original project's ID is `better-export-pdf`.
 
-- [x] Optional direct-linked-note appendices (one hop, deduplicated);
-- [x] Offline Paged.js pagination for HTML exports;
-- [x] Support print preview;
-- [x] Export multiple Markdown files into one PDF file;
-- [x] Improve default `@media print` styles (heading breaks, tables, images and code);
-- [x] Support add PDF metadata from front matter;
-- [x] Export internal links within file;
+The project uses the [MIT License](./LICENSE), retaining the original copyright and license notice.
 
-## Community
+## Feedback
 
-Maintained by [qian403](https://github.com/qian403). Visit the [GitHub repository](https://github.com/qian403/obsidian-better-export) to star the plugin, or [report issues and suggest features](https://github.com/qian403/obsidian-better-export/issues).
-
-This project is based on [Better Export PDF by l1xnan](https://github.com/l1xnan/obsidian-better-export-pdf) and retains the original license.
-
----
+Report problems or suggest features through [this fork's GitHub Issues](https://github.com/qian403/obsidian-better-export/issues). Include the export format, plugin version, Obsidian version, and steps to reproduce the issue.

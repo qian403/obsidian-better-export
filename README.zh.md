@@ -1,190 +1,114 @@
 # Obsidian Better Export
 
-[English](./README.md) | 简体中文 | [繁體中文](./README.zh-TW.md)
+[English](./README.md) | [繁體中文](./README.zh-TW.md) | 简体中文
 
-Better Export 是一个 Obsidian 多格式导出插件，支持 PDF、DOCX、HTML、Markdown、TXT 和 RTF，提供导出预览、合并与批量导出、多语言以及页脚标注。
+将 Obsidian 笔记导出为 PDF、Word、HTML、Markdown、纯文本与 RTF，支持预览、合并与批量导出，以及自定义页脚标注。
+
+本项目修改自 [l1xnan 的 Better Export PDF](https://github.com/l1xnan/obsidian-better-export-pdf)，由 [qian403](https://github.com/qian403) 维护与扩展。完整出处请见[项目来源与许可](#项目来源与许可)。
 
 ## 功能
 
-与官方导出 PDF 功能相比：
-
-- 🚀 支持导出预览
-- 🎉 支持导出 PDF 带大纲书签
-- 🛩️ 支持自定义页边距
-- ✨ 支持自定义页眉/页脚（例如：添加页码）
-- 💥 支持将文档属性添加到 PDF 元数据中
-- 🎇 支持导出的 PDF 时，保留文档内链接跳转
-- 🎈 多个笔记文件（整个目录或者指定文件）合并打印到一个 PDF 文件中
-- 🌸 整个目录中的笔记文件批量导出到单独的 PDF 文件中
-- 🍬 支持导出任意尺寸 PDF，可以将所有内容导出为一页
-- ... ...
+- 六种导出格式：PDF、DOCX、HTML、Markdown、TXT、RTF。
+- 「内容预览」快速检查笔记，「PDF 分页预览」检查页面排版。
+- 可分别开启每页左下角、右下角的自定义文字标注。
+- 文件夹合并导出、逐文件批量导出，或使用目录笔记指定顺序。
+- 可附加直接链接的笔记，每篇只加入一次，不递归展开。
+- 简体中文、繁体中文、English，或跟随 Obsidian 语言。
+- PDF 大纲书签、元数据、文档内链接、自定义纸张、边距与页眉页脚模板。
 
 ## 安装
 
-请使用本地构建或下方的手动安装方法。新版外掛 ID 为 `better-export`，此分支尚不假定已上架社群商店。
+此插件仅支持桌面版 Obsidian。本分支的插件 ID 为 `better-export`。
 
-### 手动安装
+可依照[开发](#开发)中的命令自行生成安装包；若本分支的 [Releases 页面](https://github.com/qian403/obsidian-better-export/releases)提供了打包文件，也可直接下载。
 
-1. 在 [Release](https://github.com/qian403/obsidian-better-export/releases) 页面，下载 zip 包
-2. 解压到: `{VaultFolder}/.obsidian/plugins/`
-3. 重启 Obdisian，并再插件管理器中启用插件。
+1. 解压自行打包的 `dist/obsidian-better-export.zip`，或下载的插件安装包。
+2. 将 `better-export` 文件夹放入 `你的 Vault/.obsidian/plugins/`。
+3. 确认文件夹中包含 `main.js`、`manifest.json`、`styles.css`。
+4. 重新加载 Obsidian，在社区插件中启用 **Better Export**。
 
-或者用 [BRAT Plugin](https://obsidian.md/plugins?id=obsidian42-brat)。
+如需沿用原版设置，将 `.obsidian/plugins/better-export-pdf/data.json` 复制到 `.obsidian/plugins/better-export/`。停用原版插件，避免出现重复的导出菜单。
 
-## 使用
+独立测试 Vault 与手动检查步骤请看 [TESTING.md](./TESTING.md)。
 
-1. 选择导出目标：
-   - 在当前 Markdown 视图的右上角，点击更多选项，选择 `Better Export`；
-   - 打开命令面板，选择 `Better Export: Export current file`；
-   - 在文件树中，右键文件夹选择`Export folder to PDF`。
-2. 在弹出对话框中，修改相关配置。
-3. 点击`Export`，选择导出路径，如果不用修改配置，可以直接按 `Enter` 键，触发导出操作。
+## 快速开始
 
-### 设置页眉/页脚
+1. 右键笔记选择「导出文件…」，或从命令面板执行 **Better Export: 导出当前文件**。
+2. 在右侧选择「导出格式」。
+3. 调整适用的页面设置，按需开启页脚标注并填写文字。
+4. 检查预览，点击「导出」并选择保存位置。
 
-可以通过设置 `Header Template` and `Footer Template` 配置来设置页码, 例如:
+取消保存时，导出窗口会保留。
 
-```html
-<div style="width: 100vw;font-size:10px;text-align:center;">
-  <span class="pageNumber"></span> / <span class="totalPages"></span>
-</div>
-```
+### 如何使用预览？
 
-可以实现类似 `3 / 5` 页码效果。详见[`<webview>.printToPDF(options)`](https://www.electronjs.org/docs/latest/api/webview-tag#webviewprinttopdfoptions)。
+| 预览方式 | 用途 |
+| --- | --- |
+| 内容预览 | 快速检查文字与图片，不显示最终分页、页眉与页脚。 |
+| PDF 分页预览 | 检查 PDF 的分页、边距、页眉与页脚；修改设置后会自动更新。 |
 
-可以是任何合法的 HTML 片段，例如添加`base64`格式的图片：
+**切换预览不会改变导出格式。** 要输出什么文件，请在右侧选择。「PDF 分页预览」适用于默认的 **v2 引擎**，且仅在选择 PDF 格式时出现。其他格式与 v1 引擎提供内容预览，实际排版请在导出后打开文件确认。
 
-```html
-<div style="width: 100vw;font-size:10px;text-align:center;">
-  <img height="10px" width="10px" src="data:image/svg+xml;base64,xxx..." />
-  <span class="title"></span>
-</div>
-```
+### 格式与页脚标注
 
-可以在`frontMatter`中配置文档级别的页眉/页脚模板：
+| 格式 | 内容 | 标注位置 |
+| --- | --- | --- |
+| PDF | 打印版面、大纲书签、元数据、文档内链接 | 每页页脚 |
+| DOCX | 可编辑的标题、列表、表格、链接与图片 | Word 原生页脚 |
+| HTML | 独立网页，内嵌本地图片 | 打印页脚；可选离线分页 |
+| Markdown | 原始语法，可加入笔记名称标题 | 文档末尾 |
+| TXT | UTF-8 纯文本，保留易读的列表与表格 | 文档末尾 |
+| RTF | 标题、文字强调、表格与链接；图片以描述表示 | 每页页脚 |
 
-- `headerTemplate`
-- `footerTemplate`
+在导出窗口中，分别开启左下角、右下角的标注开关并填写文字。这些标注与 PDF 页码页脚可独立设置。
 
-### 自定义导出样式
+DOCX 的版面由 Word／LibreOffice 决定，不套用 Obsidian 主题 CSS 或 PDF 专用 HTML 页眉页脚模板。DOCX 与 RTF 不内嵌音频或视频。
 
-如果想进一步定制 PDF 导出样式，可以在`外观>CSS代码片段`中添加自定义的 CSS，例如自定义字体和字号(注意使用 `@media print {}` 包裹，避免影响非打印场景样式)：
+HTML 格式的「HTML 分页（Paged.js）」会让导出的 HTML 文件呈现分页，可离线使用，但浏览器需要启用 JavaScript。此选项与导出窗口中的预览切换是不同功能。
 
-```css
-@media print {
-  body {
-    --font-interface-override: "霞鹜文楷" !important;
-    --font-text-override: "霞鹜文楷" !important;
-    --font-print-override: "霞鹜文楷" !important;
-    --font-monospace-override: "霞鹜文楷等宽" !important;
-    --font-text-size: 20px !important;
-    font-family: "思源宋体" !important;
-  }
-}
-```
+## 多篇笔记
 
+- **合并文件夹**：右键文件夹选择「导出文件夹…」，按笔记的相对路径排序。
+- **分别导出**：右键文件夹，选择「导出文档… → 分别导出每个文件…」。输出会保留子文件夹，避免同名笔记互相覆盖。
+- **附加链接笔记**：在插件设置中开启「附加链接笔记」。合并导出时按链接顺序加入直接链接的 Markdown 笔记，每篇只加入一次，不继续追踪附录中的链接。
 
-#### 分页
-如果想自定控制分页，在 Markdown 中添加
-
-```html
-<div class="break-page"></div>
-```
-
-然后定义 css代码片段样式
-
-```css
-@media print {
-  .break-page {
-    /* 在此元素之前强制分页 */
-    break-before: page;
-    
-    /* 或者如果你想在元素之后分页，可以使用： */
-    /* break-after: page; */
-    
-    /* 防止元素内部被分页打断（可选） */
-    break-inside: avoid;
-  }
-}
-```
-
-如果想实现1-3级标题自动分页，可以这样设置：
-
-```css
-@media print {
-  h1, h2, h3 {
-    break-before: page;
-  }
-}
-```
-
-详细 CSS相关配置参见：[Printing - CSS | MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Media_queries/Printing)，也可以将想要实现的分页效果询问大模型，让大模型给你可行的 CSS 片段。
-
-### 选择未启用的 CSS 片段
-
-首先，在插件配置中启用 `Select CSS snippets` 选项。这时候在导出 PDF 的弹窗中可以看到 `CSS snippets` 选项，然后你可以选择在 `外观 > CSS 片段` 中没有全局启用的 CSS。
-
-### 导出背景
-
-默认情况下，导出的 PDF 会删除主题所得带背景色，如果你需要这个背景色，可以`插件设置 > Print background` 配置中打开它。
-
-### 添加 PDF 元数据
-
-可以通过配置文档的 `frontMatter` 给 PDF 添加元数据，支持的字段项有：
-
-- `title`
-- `author`
-- `keywords`
-- `created_at`
-- `updated_at`
-- `creator`
-- `producer`
-
-### 多文件导出
-
-#### 快速导出
-
-侧边栏选择文件夹，右键选择菜单 `Export folder to PDF`，即可将整个文件夹内容导出到一个 PDF 文件中，按照文件的相对路径排序导出；
-
-#### 自定义导出
-
-新建一个目录笔记，添加如下类似内容，需要添加 `toc: true` 文档属性：
+如需自定义顺序，创建并导出一篇目录笔记：
 
 ```markdown
 ---
 toc: true
 ---
 
-## 目录
+# 目录
 
-[[笔记1|标题1]]
-[[笔记2]]
-[[笔记3]]
+[[笔记一|前言]]
+[[笔记二]]
+[[笔记三]]
 ```
 
-这样插件会按照 `当前目录页`、`笔记1`、`笔记2`.. 的顺序导出笔记。导出的 PDF，目录页锚点支持点击跳转。
+请导出这篇笔记，而非整个文件夹。输出顺序为目录笔记、笔记一、笔记二、笔记三。PDF、DOCX、HTML 会保留可对应的文档内跳转链接。
 
-### 文件夹批量导出
+## PDF 高级设置
 
-侧边栏选择文件夹，右键选择菜单 `Export each file to PDF`，即可将整个文件夹每一个文件批量导出为 PDF 文件
+在插件设置中调整「页眉模板」与「页脚模板」。例如以下页脚会显示当前页码与总页数：
 
-### 导出为一页
+```html
+<div style="width:100%;font-size:10px;text-align:center;">
+  <span class="pageNumber"></span> / <span class="totalPages"></span>
+</div>
+```
 
-导出对话框， **Page Size** 选择 `Custom`，**Margin** 设置为 `None`，根据文档情况自行设置页面尺寸。
+模板也支持 `date`、`title`、`url` 类别。可在笔记属性中设置 `headerTemplate` 与 `footerTemplate`，覆盖该篇笔记的模板。
 
----
+开启「PDF 元数据」后，可使用笔记属性中的 `title`、`author`、`keywords`、`subject`、`creator`、`created_at`、`updated_at`。
 
-**注意:** 你可以通过`插件设置 > 限制并发数` 调整多文件导出时渲染阶段的并发数量，以此来减少资源消耗，或者提高速度，默认为 `5`。
+可通过 Obsidian CSS 片段中的 `@media print` 自定义打印样式。启用插件设置中的「启用 CSS 片段选择」后，也能选用未全局启用的片段。需要手动分页时，在笔记中加入：
 
-## 多格式导出与页脚标注
+```html
+<div class="break-page"></div>
+```
 
-支持 PDF、DOCX、HTML、Markdown、TXT 与 RTF。在导出窗口选择格式，再打开左下角／右下角标注开关并填写文字。
-
-PDF、DOCX、RTF 的标注在每页重复；HTML 打印时重复，也可开启离线 Paged.js 分页预览。Markdown 与 TXT 没有固定页面，标注放在文档末尾。DOCX 保留标题、清单、表格、超链接与可读取的图片；RTF 以图片描述代替图片。DOCX 不套用主题 CSS 或 PDF 专用 HTML 页眉／页脚模板。
-
-设置中可选择 English、简体中文、繁體中文或跟随 Obsidian。开启「附加链接笔记」后，会按链接顺序附加直接链接的 Markdown 笔记，去重且不递归追踪附录里的链接，仅适用于合并导出。批量导出保留子文件夹，避免同名笔记互相覆盖。
-
-参见 [测试与安装说明](./TESTING.md)。旧版 ID `better-export-pdf` 已更名为 `better-export`；如需旧设置，请复制旧外掛文件夹的 `data.json`。
+插件已内置此类的打印分页样式。如需自定义纸张，在「纸张尺寸」选择「自定义」，再输入宽度与高度。
 
 ## 开发
 
@@ -196,30 +120,23 @@ pnpm test:browser
 pnpm package
 ```
 
-安装包位于 `dist/obsidian-better-export.zip`，另有独立测试 Vault。Vite 构建输出到 `dist/vite`。
+浏览器测试使用已安装的 Chrome，也可通过 `BETTER_EXPORT_BROWSER_PATH` 指定 Chromium。测试包含模拟 Obsidian API；完整的 Obsidian 操作请依照 [TESTING.md](./TESTING.md) 实测。
 
-## 效果
+`pnpm package` 会生成：
 
-### 导出预览
+- `dist/obsidian-better-export.zip`：插件安装包。
+- `dist/obsidian-better-export-test-vault.zip`：已安装插件并附示例笔记的独立测试 Vault。
 
-![Export preview](./assets/preview0.png)
+`pnpm build` 使用 esbuild；`pnpm build:vite` 提供另一条构建路径，输出到 `dist/vite`。
 
-### 导出效果
+## 项目来源与许可
 
-![Export preview](./assets/preview1.png)
+本项目修改自 **[l1xnan/obsidian-better-export-pdf](https://github.com/l1xnan/obsidian-better-export-pdf)**。原作者 **l1xnan** 与上游贡献者建立了本项目沿用的 PDF 导出基础。
 
-## TODO
+当前分支 **[qian403/obsidian-better-export](https://github.com/qian403/obsidian-better-export)** 在此基础上扩展多格式文档导出、语言选择、左右页脚标注、链接笔记附录与更清楚的预览操作。此分支的插件 ID 为 `better-export`，原项目则为 `better-export-pdf`。
 
-- [x] 可选的直接链接笔记附录（单层、去重）；
-- [x] HTML 导出支持离线 Paged.js 分页；
-- [x] 支持打印预览；
-- [x] 多个 Markdown 合并打印到一个 PDF 文件中；
-- [x] 完善默认 `@media print` css 样式；
-- [x] 支持将文档属性添加到 PDF 元数据中；
-- [x] 保留文档内链接跳转；
+本项目采用 [MIT License](./LICENSE)，保留原作者的版权与许可声明。
 
-## 社区
+## 反馈问题
 
-由 [qian403](https://github.com/qian403) 维护。欢迎前往 [GitHub 仓库](https://github.com/qian403/obsidian-better-export) 点 Star，或[反馈问题与提出建议](https://github.com/qian403/obsidian-better-export/issues)。
-
-本项目基于 [l1xnan 的 Better Export PDF](https://github.com/l1xnan/obsidian-better-export-pdf)，保留原作者授权。
+请前往[此分支的 GitHub Issues](https://github.com/qian403/obsidian-better-export/issues) 反馈问题或提出建议，并附上导出格式、插件版本、Obsidian 版本及复现步骤。
