@@ -3,8 +3,10 @@ const fs = require("fs").promises;
 import { type FrontMatterCache, Modal, TFile, TFolder } from "obsidian";
 import path from "path";
 import { mount, unmount } from "svelte";
-import i18n, { type Lang } from "./i18n";
-import type BetterExportPdfPlugin from "./main";
+import type { Lang } from "./i18n";
+import { isExportFormat, type ExportFormat } from "./exporters/types";
+import { appendLinkedFiles } from "./utils/export";
+import type BetterExportPlugin from "./main";
 import { renderMarkdown, type ParamType } from "./render";
 import { traverseFolder, getDerivedLightVars, injectLightVarsPatch, removeLightVarsPatch } from "./utils";
 import ModalUI from "./components/ModalUI.svelte";
@@ -12,6 +14,12 @@ import ModalUI from "./components/ModalUI.svelte";
 export type PageSizeType = electron.PrintToPDFOptions["pageSize"];
 
 export interface ExportConfigType {
+  format: ExportFormat;
+  pagedHtml?: boolean;
+  footerLeftEnabled?: boolean;
+  footerRightEnabled?: boolean;
+  footerLeftText?: string;
+  footerRightText?: string;
   pageSize: PageSizeType | "Custom";
   pageWidth?: string;
   pageHeight?: string;
@@ -34,7 +42,7 @@ export interface ExportConfigType {
   multiple?: boolean;
 }
 
-export type DocType = { doc: Document | HTMLDivElement; frontMatter?: FrontMatterCache; file: TFile };
+export type DocType = { doc: Document | HTMLDivElement; frontMatter?: FrontMatterCache; file: TFile; printSize?: string; cleanup?: () => void };
 export type DocV2Type = {
   doc: HTMLDivElement;
   frontMatter: FrontMatterCache;
@@ -49,23 +57,29 @@ export type FileListType = {
 
 export class ExportConfigModal extends Modal {
   defaultConfig: ExportConfigType;
-  plugin: BetterExportPdfPlugin;
+  plugin: BetterExportPlugin;
   file: TFile | TFolder;
   multiplePdf?: boolean;
 
   i18n: Lang;
 
   // Svelte component instance
-  private component?: ModalUI;
+  private component?: ReturnType<typeof mount>;
 
-  constructor(plugin: BetterExportPdfPlugin, file: TFile | TFolder, multiplePdf?: boolean) {
+  constructor(plugin: BetterExportPlugin, file: TFile | TFolder, multiplePdf?: boolean) {
     super(plugin.app);
     this.plugin = plugin;
     this.file = file;
-    this.i18n = i18n.current;
+    this.i18n = plugin.i18n;
     this.multiplePdf = multiplePdf;
 
     this.defaultConfig = {
+      format: "pdf",
+      pagedHtml: false,
+      footerLeftEnabled: false,
+      footerRightEnabled: false,
+      footerLeftText: "",
+      footerRightText: "",
       pageSize: "A4",
       marginType: "1",
       showTitle: plugin.settings.showTitle ?? true,
@@ -77,10 +91,11 @@ export class ExportConfigModal extends Modal {
       marginLeft: "10",
       marginRight: "10",
       displayHeader: plugin.settings.displayHeader ?? true,
-      displayFooter: plugin.settings.displayHeader ?? true,
+      displayFooter: plugin.settings.displayFooter ?? true,
       cssSnippet: "0",
       ...(plugin.settings.prevConfig ?? {}),
     } as ExportConfigType;
+    if (!isExportFormat(this.defaultConfig.format)) this.defaultConfig.format = "pdf";
   }
 
   // ── Lifecycle ───────────────────────────────────────────
@@ -88,7 +103,7 @@ export class ExportConfigModal extends Modal {
   onOpen() {
     this.contentEl.empty();
     this.containerEl.style.setProperty("--dialog-width", "60vw");
-    this.titleEl.setText("Export to PDF");
+    this.titleEl.setText(this.i18n.exportDialog.title);
     const missingVars = getDerivedLightVars();
     console.debug("检测到以下衍生变量在亮色主题下未重置，即将进行注入：", missingVars);
     // 步骤 2：注入补丁样式
@@ -108,7 +123,6 @@ export class ExportConfigModal extends Modal {
       this.component = undefined;
     }
     this.contentEl.empty();
-    document.querySelectorAll(".print").forEach((el) => el.remove());
     removeLightVarsPatch();
   }
 
@@ -124,17 +138,22 @@ export class ExportConfigModal extends Modal {
     if (this.file instanceof TFolder) {
       const files = traverseFolder(this.file);
       for (const file of files) {
-        data.push({ app, file });
+        data.push({ app, file, i18n: this.i18n });
       }
     } else {
-      const { doc, frontMatter, file } = await renderMarkdown({ app, file: this.file, config: this.defaultConfig });
+      const { doc, frontMatter, file } = await renderMarkdown({ app, file: this.file, config: this.defaultConfig, i18n: this.i18n });
       docs.push({ doc, frontMatter, file });
       if (frontMatter.toc) {
         const files = this.parseToc(doc);
         for (const item of files) {
-          data.push({ app, file: item.file, extra: item });
+          data.push({ app, file: item.file, extra: item, i18n: this.i18n });
         }
       }
+    }
+    if (this.plugin.settings.includeLinkedNotes && !this.multiplePdf) {
+      const sources = [...docs.map((item) => item.file), ...data.map((item) => item.file)];
+      const appended = this.appendLinkedNotes(sources).slice(sources.length);
+      data.push(...appended.map((file) => ({ app, file })));
     }
     return { data, docs };
   }
@@ -151,14 +170,27 @@ export class ExportConfigModal extends Modal {
       data.push({ file: this.file, toc: frontmatter?.toc });
       if (frontmatter?.toc && links) {
         for (const link of links) {
-          const file = this.app.metadataCache.getFirstLinkpathDest(link.link, this.file.path) as TFile;
-          if (file instanceof TFile) {
+          const file = this.app.metadataCache.getFirstLinkpathDest(link.link.split("#")[0], this.file.path) as TFile;
+          if (file instanceof TFile && file.extension === "md") {
             data.push({ file });
           }
         }
       }
     }
+    if (this.plugin.settings.includeLinkedNotes && !this.multiplePdf) {
+      const sources = data.map((item) => item.file);
+      data.push(...this.appendLinkedNotes(sources).slice(sources.length).map((file) => ({ file })));
+    }
     return { data, multiplePdf: this.multiplePdf };
+  }
+
+  private appendLinkedNotes(files: TFile[]) {
+    return appendLinkedFiles(files,
+      (file) => (this.getFileCache(file)?.links ?? []).map((link) => link.link),
+      (link, source) => {
+        const file = this.app.metadataCache.getFirstLinkpathDest(link.split("#")[0], source.path);
+        return file instanceof TFile && file.extension === "md" ? file : null;
+      });
   }
 
   parseToc(doc: Document) {
@@ -167,17 +199,17 @@ export class ExportConfigModal extends Modal {
       cache?.links
         ?.map(({ link, displayText }) => {
           const id = crypto.randomUUID();
-          const elem = doc.querySelector(`a[data-href="${link}"]`) as HTMLAnchorElement;
+          const elem = Array.from(doc.querySelectorAll<HTMLAnchorElement>("a[data-href]")).find((el) => el.dataset.href === link);
           if (elem) {
             elem.href = `#${id}`;
           }
           return {
             title: displayText,
-            file: this.app.metadataCache.getFirstLinkpathDest(link, this.file.path) as TFile,
+            file: this.app.metadataCache.getFirstLinkpathDest(link.split("#")[0], this.file.path) as TFile,
             id,
           };
         })
-        .filter((item) => item.file instanceof TFile) ?? [];
+        .filter((item) => item.file instanceof TFile && item.file.extension === "md") ?? [];
     return files;
   }
 
@@ -187,9 +219,12 @@ export class ExportConfigModal extends Modal {
     for (const { doc } of docs) {
       const element = doc.querySelector(".markdown-preview-view");
       if (element) {
-        const section = doc0.createElement("section");
+        const owner = doc0 instanceof Document ? doc0 : doc0.ownerDocument;
+        const section = owner.createElement("section");
+        section.className = element.className;
+        section.dataset.exportPath = docs.find((item) => item.doc === doc)?.file.path;
         Array.from(element.children).forEach((child) => {
-          section.appendChild(doc0.importNode(child, true));
+          section.appendChild(owner.importNode(child, true));
         });
         sections.push(section);
       }
@@ -205,7 +240,7 @@ export class ExportConfigModal extends Modal {
   }
 
   mergeDocV2(docs: DocV2Type[]): DocV2Type[] {
-    const printEl = document.body.createDiv("print");
+    const printEl = document.body.createDiv({ cls: "print theme-light", attr: { "data-better-export-root": "true" } });
 
     for (const { doc } of docs) {
       const viewEl = doc.querySelector(".markdown-preview-view");
@@ -214,7 +249,10 @@ export class ExportConfigModal extends Modal {
       }
       document.body.removeChild(doc);
     }
-    return [{ ...docs[0], doc: printEl }];
+    return [{ ...docs[0], doc: printEl, cleanup: () => {
+      docs.forEach((item) => item.cleanup());
+      printEl.remove();
+    } }];
   }
 
   // ── CSS Snippets helper ─────────────────────────────────
@@ -224,10 +262,10 @@ export class ExportConfigModal extends Modal {
     // @ts-ignore
     const basePath = this.app.vault.adapter.basePath;
     return Object.fromEntries(
-      snippets
-        ?.filter((item: string) => !enabledSnippets.has(item))
+      (snippets ?? [])
+        ?.filter((item: string) => !enabledSnippets?.has(item))
         .map((name: string) => {
-          const file = path.join(basePath, ".obsidian/snippets", name + ".css");
+          const file = path.join(basePath, `${this.app.vault.configDir}/snippets`, name + ".css");
           return [file, name];
         }),
     );

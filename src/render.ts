@@ -1,7 +1,10 @@
 import { App, Component, type FrontMatterCache, MarkdownRenderer, MarkdownView, Notice, TFile } from "obsidian";
 import type { PageSizeType, ExportConfigType } from "./modal";
-import { copyAttributes, fixAnchors, modifyDest } from "./utils";
+import { copyAttributes, fixAnchors, modifyDest, sleep } from "./utils";
+import en from "./i18n/en";
+import { formatMessage, type Lang } from "./i18n";
 import * as electron from "electron";
+import { printNativePdf } from "./utils/nativePrint";
 
 export function getAllStyles() {
   const cssTexts: string[] = [];
@@ -122,10 +125,11 @@ export type ParamType = {
     id?: string;
   };
   cleanup?: () => void;
+  i18n?: Lang;
 };
 
 // 逆向Obdian官方打印函数
-export async function renderMarkdown({ app, file, config, extra }: ParamType) {
+export async function renderMarkdown({ app, file, config, extra, i18n = en }: ParamType) {
   const startTime = new Date().getTime();
 
   const ws = app.workspace;
@@ -141,7 +145,7 @@ export async function renderMarkdown({ app, file, config, extra }: ParamType) {
   const view = leaf.view as MarkdownView;
   const data = await app.vault.cachedRead(file);
   if (!data) {
-    new Notice("data is empty!");
+    new Notice(formatMessage(i18n.notices.emptyNote, { file: file.path }));
   }
 
   const frontMatter = getFrontMatter(app, file);
@@ -207,12 +211,15 @@ export async function renderMarkdown({ app, file, config, extra }: ParamType) {
 
   const fragment = {
     children: undefined,
-    appendChild(e: DocumentFragment) {
+    appendChild(this: { children?: HTMLCollection }, e: DocumentFragment) {
       this.children = e?.children;
       throw new Error("exit");
     },
   } as unknown as HTMLElement;
 
+  printEl.dataset.exportPath = file.path;
+  const exportedView = printEl.querySelector<HTMLElement>(".markdown-preview-view");
+  if (exportedView) exportedView.dataset.exportPath = file.path;
   const promises: AyncFnType[] = [];
   try {
     // `render` converts Markdown to HTML, and then it undergoes postProcess handling.
@@ -252,7 +259,7 @@ export async function renderMarkdown({ app, file, config, extra }: ParamType) {
   });
   await Promise.all(promises);
 
-  printEl.findAll("a.internal-link").forEach((el: HTMLAnchorElement) => {
+  Array.from(printEl.querySelectorAll<HTMLAnchorElement>("a.internal-link")).forEach((el: HTMLAnchorElement) => {
     const [title, anchor] = el.dataset.href?.split("#") ?? [];
 
     if ((!title || title?.length == 0 || title == file.basename) && anchor?.startsWith("^")) {
@@ -281,12 +288,12 @@ export async function renderMarkdown({ app, file, config, extra }: ParamType) {
   return { doc, frontMatter, file };
 }
 
-export async function renderMarkdownV2({ app, file, config, extra }: ParamType) {
+export async function renderMarkdownV2({ app, file, config, extra, i18n = en }: ParamType) {
   const startTime = new Date().getTime();
 
   const data = await app.vault.cachedRead(file);
   if (!data) {
-    new Notice(`${file} content is empty!`);
+    new Notice(formatMessage(i18n.notices.emptyNote, { file: file.path }));
   }
 
   const comp = new Component();
@@ -296,19 +303,24 @@ export async function renderMarkdownV2({ app, file, config, extra }: ParamType) 
     cls: "print theme-light",
     attr: {
       id: file.path,
+      "data-better-export-root": "true",
     },
   });
   const { viewEl, frontMatter } = createViewEl({ app, file, extra, config, printEl });
 
   const markdown = modifyMarkdown({ app, file, data });
 
-  await renderHtml({ app, markdown, file, comp, viewEl });
-
   const cleanup = () => {
     printEl.detach();
     comp.unload();
     printEl.remove();
   };
+  try {
+    await renderHtml({ app, markdown, file, comp, viewEl });
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
   console.debug(`md render time:${new Date().getTime() - startTime}ms`);
 
   return { doc: printEl, frontMatter, file, cleanup };
@@ -331,6 +343,7 @@ export function createViewEl({
 
   const viewEl = printEl.createDiv({ cls: "markdown-preview-view markdown-rendered" });
 
+  viewEl.dataset.exportPath = file.path;
   const cssclasses = getCssclasses(frontMatter);
   viewEl.addClasses(cssclasses);
 
@@ -390,7 +403,7 @@ async function renderHtml({
 }) {
   const fragment = {
     children: undefined,
-    appendChild(e: DocumentFragment) {
+    appendChild(this: { children?: HTMLCollection }, e: DocumentFragment) {
       this.children = e?.children;
       throw new Error("exit");
     },
@@ -435,7 +448,7 @@ async function renderHtml({
   });
   await Promise.all(promises);
 
-  viewEl.findAll("a.internal-link").forEach((el: HTMLAnchorElement) => {
+  Array.from(viewEl.querySelectorAll<HTMLAnchorElement>("a.internal-link")).forEach((el: HTMLAnchorElement) => {
     const [title, anchor] = el.dataset.href?.split("#") ?? [];
 
     if ((!title || title?.length == 0 || title == file.basename) && anchor?.startsWith("^")) {
@@ -446,22 +459,55 @@ async function renderHtml({
   });
 }
 
-export function fixDoc(doc: Document, title: string) {
+export function fixDoc(doc: Document, title: string, app?: App) {
   const dest = modifyDest(doc);
   fixAnchors(doc, dest, title);
+  if (app) fixLinkedNoteAnchors(doc, app);
   encodeEmbeds(doc);
   return doc;
 }
 
-export function fixDocV2(doc: Document | HTMLDivElement, title: string) {
+export function fixDocV2(doc: Document | HTMLDivElement, title: string, app?: App) {
   const dest = modifyDest(doc);
   fixAnchors(doc, dest, title);
+  if (app) fixLinkedNoteAnchors(doc, app);
   return doc;
 }
 
+/** Restore links between notes after all sections have been merged. */
+export function fixLinkedNoteAnchors(doc: Document | HTMLDivElement, app: App) {
+  const views = Array.from(doc.querySelectorAll<HTMLElement>(".markdown-preview-view[data-export-path]"));
+  const destinations = new Map<string, HTMLElement>();
+  for (const view of views) destinations.set(view.dataset.exportPath!, view);
+  doc.querySelectorAll<HTMLAnchorElement>("a.internal-link[data-href]").forEach((link) => {
+    const source = link.closest<HTMLElement>("[data-export-path]")?.dataset.exportPath;
+    if (!source) return;
+    const [targetPath, ...fragment] = (link.dataset.href ?? "").split("#");
+    const file = targetPath ? app.metadataCache.getFirstLinkpathDest(targetPath, source) :
+      app.vault.getAbstractFileByPath(source);
+    if (!(file instanceof TFile)) return;
+    const view = destinations.get(file.path);
+    if (!view) return;
+    const anchor = fragment.join("#");
+    const headings = Array.from(view.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"));
+    const heading = anchor ? headings.find((el) =>
+      (el.dataset.heading ?? el.textContent?.trim())?.toLowerCase() === anchor.toLowerCase()) : headings[0];
+    if (anchor.startsWith("^")) {
+      const block = Array.from(view.querySelectorAll<HTMLElement>(".blockid")).find((el) => el.id === anchor);
+      if (block) link.href = block.querySelector<HTMLAnchorElement>("a.md-print-anchor")?.href.replace("af://", "an://") ?? link.href;
+      return;
+    }
+    const marker = heading?.querySelector<HTMLAnchorElement>("a.md-print-anchor");
+    if (marker) link.href = marker.href.replace("af://", "an://");
+  });
+}
+
 export function encodeEmbeds(doc: Document) {
-  const spans = Array.from(doc.querySelectorAll("span.markdown-embed")).reverse();
-  spans.forEach((span: HTMLElement) => (span.innerHTML = encodeURIComponent(span.innerHTML)));
+  const spans = Array.from(doc.querySelectorAll<HTMLElement>("span.markdown-embed")).reverse();
+  spans.forEach((span) => {
+    span.innerHTML = encodeURIComponent(span.innerHTML);
+    span.dataset.exportEncoded = "true";
+  });
 }
 
 export async function fixWaitRender(data: string, viewEl: HTMLElement) {
@@ -560,23 +606,10 @@ function waitForDomChange(target: HTMLElement, timeout = 2000, interval = 200): 
  * @param printEl
  * @param options
  */
-export async function printToPdf(
-  printEl: any,
-  options: electron.PrintToPDFOptions & {
-    filepath: string;
-  },
-) {
+export async function printToPdf(printEl: HTMLDivElement, options: electron.PrintToPDFOptions) {
+  // @ts-ignore Obsidian adds win to DOM elements, including secondary windows.
   const ipc = printEl.win.electron.ipcRenderer as electron.IpcRenderer;
-
-  return new Promise((resolve) => {
-    // 1.ipc先设置监听（确保不会错过主进程的回信）
-    ipc.once("print-to-pdf", (event, result) => {
-      resolve(result); // 收到回复时，结束等待
-    });
-
-    // 2. 发送请求
-    ipc.send("print-to-pdf", options);
-  });
+  return printNativePdf(ipc, options);
 }
 
 export function getCssclasses(frontMatter: FrontMatterCache) {

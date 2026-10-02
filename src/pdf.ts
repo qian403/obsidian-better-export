@@ -3,7 +3,11 @@ const fs = require("fs").promises;
 import { Notice, type FrontMatterCache } from "obsidian";
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, StandardFonts } from "pdf-lib";
 
-import type { BetterExportPdfPluginSettings } from "./main";
+import en from "./i18n/en";
+import { escapeHtml, getAnnotations } from "./exporters/types";
+import { formatMessage, type Lang } from "./i18n";
+
+import type { BetterExportPluginSettings } from "./main";
 import type { DocType, PageSizeType, ExportConfigType } from "./modal";
 import { TreeNode, getHeadingTree, safeParseFloat, safeParseInt, renderTemplate } from "./utils";
 
@@ -381,7 +385,7 @@ function mergeObj(obj1: any, obj2: any, props: string[]) {
 }
 
 export function makePrintOptions(
-  config: ExportConfigType & BetterExportPdfPluginSettings,
+  config: ExportConfigType & BetterExportPluginSettings,
   frontMatter?: FrontMatterCache,
 ): electron.PrintToPDFOptions {
   config = mergeObj(config, frontMatter, ["headerTemplate", "footerTemplate"]);
@@ -398,6 +402,15 @@ export function makePrintOptions(
   if (scale > 200 || scale < 10) {
     scale = 100;
   }
+  const annotation = getAnnotations(config);
+  const hasAnnotations = !!(annotation.left || annotation.right);
+  const footerTemplate = hasAnnotations
+    ? `<div style="width:100%;padding:0 10mm;font-size:9px;display:flex;align-items:center;gap:8px;">
+        <span style="width:33%;text-align:left;overflow-wrap:anywhere;">${escapeHtml(annotation.left)}</span>
+        <div style="width:34%;text-align:center;">${config.displayFooter ? renderTemplate(config.footerTemplate, frontMatter ?? {}).replace(/100vw/g, "100%") : ""}</div>
+        <span style="width:33%;text-align:right;overflow-wrap:anywhere;">${escapeHtml(annotation.right)}</span>
+      </div>`
+    : config.displayFooter ? renderTemplate(config.footerTemplate, frontMatter ?? {}) : "<span></span>";
   const printOptions: electron.PrintToPDFOptions = {
     landscape: config?.["landscape"],
     printBackground: config?.["printBackground"],
@@ -407,13 +420,11 @@ export function makePrintOptions(
     margins: {
       marginType: "default",
     },
-    displayHeaderFooter: config["displayHeader"] || config["displayFooter"],
+    displayHeaderFooter: config["displayHeader"] || config["displayFooter"] || hasAnnotations,
     headerTemplate: config["displayHeader"]
       ? renderTemplate(config["headerTemplate"], frontMatter ?? {})
       : "<span></span>",
-    footerTemplate: config["displayFooter"]
-      ? renderTemplate(config["footerTemplate"], frontMatter ?? {})
-      : "<span></span>",
+    footerTemplate,
     // generateDocumentOutline: true,
   };
 
@@ -447,10 +458,16 @@ export function makePrintOptions(
       right: safeParseFloat(config["marginRight"], 0) / 25.4,
     };
   }
+  if ((hasAnnotations || config.displayFooter) && printOptions.margins) {
+    printOptions.margins.bottom = Math.max(printOptions.margins.bottom ?? 0.4, 12 / 25.4);
+  }
+  if (config.displayHeader && printOptions.margins) {
+    printOptions.margins.top = Math.max(printOptions.margins.top ?? 0.4, 12 / 25.4);
+  }
   return printOptions;
 }
 
-export async function writePdfFile(outputFile: string, data: Buffer | Uint8Array): Promise<boolean> {
+export async function writePdfFile(outputFile: string, data: Buffer | Uint8Array, i18n: Lang = en): Promise<boolean> {
   try {
     await fs.writeFile(outputFile, data);
     return true;
@@ -458,9 +475,9 @@ export async function writePdfFile(outputFile: string, data: Buffer | Uint8Array
     console.error(error);
     const code = error?.code as string | undefined;
     if (code === "EBUSY" || code === "EPERM" || code === "EACCES") {
-      new Notice("无法覆盖 PDF：文件可能正在被其他程序打开，请关闭后重试。");
+      new Notice(i18n.notices.fileBusy);
     } else {
-      new Notice(`保存 PDF 失败：${error?.message ?? error}`);
+      new Notice(formatMessage(i18n.notices.saveFailed, { error: error?.message ?? String(error) }));
     }
     return false;
   }
@@ -468,9 +485,10 @@ export async function writePdfFile(outputFile: string, data: Buffer | Uint8Array
 
 export async function exportToPDF(
   outputFile: string,
-  config: ExportConfigType & BetterExportPdfPluginSettings,
+  config: ExportConfigType & BetterExportPluginSettings,
   w: WebviewTag,
   { doc, frontMatter }: DocType,
+  i18n: Lang = en,
 ) {
   console.debug("output pdf:", outputFile);
 
@@ -486,28 +504,28 @@ export async function exportToPDF(
       maxLevel: safeParseInt(config?.maxLevel, 6),
     });
 
-    const saved = await writePdfFile(outputFile, data);
-    if (!saved) {
-      return;
-    }
+    const saved = await writePdfFile(outputFile, data, i18n);
+    if (!saved) return false;
 
     if (config.open) {
       // @ts-ignore
-      electron.remote.shell.openPath(outputFile);
+      await electron.remote.shell.openPath(outputFile);
     }
+    return true;
   } catch (error) {
     console.error(error);
-    new Notice(`导出 PDF 失败：${(error as Error)?.message ?? error}`);
+    new Notice(formatMessage(i18n.notices.exportFailed, { error: (error as Error)?.message ?? String(error) }));
+    return false;
   }
 }
 
-export async function getOutputFile(filename: string, isTimestamp?: boolean) {
+export async function getOutputFile(filename: string, isTimestamp?: boolean, i18n: Lang = en) {
   // @ts-ignore
   const result = await electron.remote.dialog.showSaveDialog({
-    title: "Export to PDF",
+    title: i18n.exportDialog.title,
     defaultPath: filename + (isTimestamp ? "-" + Date.now() : "") + ".pdf",
     filters: [
-      { name: "All Files", extensions: ["*"] },
+      { name: i18n.exportDialog.allFiles, extensions: ["*"] },
       { name: "PDF", extensions: ["pdf"] },
     ],
     properties: ["showOverwriteConfirmation", "createDirectory"],
@@ -519,10 +537,10 @@ export async function getOutputFile(filename: string, isTimestamp?: boolean) {
   return result.filePath;
 }
 
-export async function getOutputPath(filename: string, isTimestamp?: boolean) {
+export async function getOutputPath(filename: string, i18n: Lang = en) {
   // @ts-ignore
   const result = await electron.remote.dialog.showOpenDialog({
-    title: "Export to PDF",
+    title: i18n.exportDialog.title,
     defaultPath: filename,
     properties: ["openDirectory"],
   });

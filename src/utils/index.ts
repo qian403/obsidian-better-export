@@ -6,7 +6,7 @@ export class TreeNode {
   title: string;
   level: number;
   children: TreeNode[] = [];
-  parent: TreeNode;
+  parent!: TreeNode;
   constructor(key: string, title: string, level: number) {
     this.key = key;
     this.title = title;
@@ -25,7 +25,7 @@ export class TreeNode {
  */
 
 export function getHeadingTree(doc: Document | HTMLDivElement = document) {
-  const headings = doc.querySelectorAll("h1, h2, h3, h4, h5, h6");
+  const headings = doc.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6");
   const root = new TreeNode("", "Root", 0);
   let prev = root;
 
@@ -58,7 +58,7 @@ export function getHeadingTree(doc: Document | HTMLDivElement = document) {
 // Enhanced to support both Obsidian wikilinks and standard markdown anchor links
 export function modifyDest(doc: Document | HTMLDivElement) {
   const data = new Map();
-  doc.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading: HTMLElement, i) => {
+  doc.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6").forEach((heading: HTMLElement, i) => {
     const link = document.createElement("a") as HTMLAnchorElement;
     const flag = `${heading.tagName.toLowerCase()}-${i}`;
     link.href = `af://${flag}`;
@@ -106,7 +106,7 @@ export function fixAnchors(doc: Document | HTMLDivElement, dest: Map<string, str
   const lowerDest = convertMapKeysToLowercase(dest);
 
   // Handle Obsidian internal links (wikilink-style)
-  doc.querySelectorAll("a.internal-link").forEach((el: HTMLAnchorElement, i) => {
+  doc.querySelectorAll<HTMLAnchorElement>("a.internal-link").forEach((el: HTMLAnchorElement, i) => {
     const [title, anchor] = el.dataset.href?.split("#") ?? [];
 
     if (anchor?.startsWith("^")) {
@@ -126,7 +126,7 @@ export function fixAnchors(doc: Document | HTMLDivElement, dest: Map<string, str
   });
 
   // Handle standard markdown anchor links like [text](#heading)
-  doc.querySelectorAll("a[href^='#']").forEach((el: HTMLAnchorElement) => {
+  doc.querySelectorAll<HTMLAnchorElement>("a[href^='#']").forEach((el: HTMLAnchorElement) => {
     const href = el.getAttribute("href");
     if (!href) return;
 
@@ -141,15 +141,17 @@ export function fixAnchors(doc: Document | HTMLDivElement, dest: Map<string, str
     if (anchor.startsWith("^")) return;
 
     // Try multiple variations of the anchor text to find a match
+    let decoded = anchor;
+    try { decoded = decodeURIComponent(anchor); } catch { /* Keep malformed URLs intact. */ }
     const variations = [
       anchor, // Original anchor
-      decodeURIComponent(anchor), // URL decoded
+      decoded, // URL decoded
       anchor.replace(/-/g, " "), // Dash to space
-      decodeURIComponent(anchor).replace(/-/g, " "), // Both
+      decoded.replace(/-/g, " "), // Both
       anchor.toLowerCase(), // Lowercase
-      decodeURIComponent(anchor).toLowerCase(), // URL decoded + lowercase
+      decoded.toLowerCase(), // URL decoded + lowercase
       anchor.toLowerCase().replace(/-/g, " "), // Lowercase + dash to space
-      decodeURIComponent(anchor).toLowerCase().replace(/-/g, " "), // All transformations
+      decoded.toLowerCase().replace(/-/g, " "), // All transformations
     ];
 
     // Try to find a matching heading using any of the variations
@@ -199,20 +201,19 @@ export const mm2px = (mm: number) => {
   return Math.round(mm * 3.779527559);
 };
 
-export function traverseFolder(path: TFolder | TFile): TFile[] {
-  if (path instanceof TFile) {
-    if (path.extension == "md") {
-      return [path];
+export function traverseFolder(root: TFolder | TFile): TFile[] {
+  const files: TFile[] = [];
+  const collect = (item: TFolder | TFile) => {
+    if (item instanceof TFile) {
+      if (item.extension === "md") files.push(item);
     } else {
-      return [];
+      item.children.forEach((child) => {
+        if (child instanceof TFile || child instanceof TFolder) collect(child);
+      });
     }
-  }
-  const arr: TFile[] = [];
-  for (const item of path.children) {
-    arr.push(...traverseFolder(item as TFolder));
-  }
-  arr.sort((a, b) => a.name.localeCompare(b.name));
-  return arr;
+  };
+  collect(root);
+  return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 // copy element attributes
@@ -262,7 +263,7 @@ export function getDerivedLightVars() {
         if (!rules) continue;
 
         for (const rule of rules) {
-          if (rule.type !== CSSRule.STYLE_RULE) continue;
+          if (!(rule instanceof CSSStyleRule)) continue;
 
           const selector = rule.selectorText;
 

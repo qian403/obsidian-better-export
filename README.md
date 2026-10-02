@@ -1,8 +1,8 @@
-# Obsidian Better Export PDF
+# Obsidian Better Export
 
-English | [中文](./README.zh.md)
+English | [简体中文](./README.zh.md) | [繁體中文](./README.zh-TW.md)
 
-Better Export PDF is an Obsidian PDF export enhancement plugin that adds the ability to export bookmarks outline, export preview and add page numbers to PDF compared to the official PDF export function.
+Better Export exports Obsidian notes to PDF, DOCX, HTML, Markdown, plain text and RTF. It supports combined and batch exports, English / 简体中文 / 繁體中文, and optional bottom-left and bottom-right annotations.
 
 ## Features
 
@@ -21,11 +21,11 @@ Compared to the official Export PDF feature:
 
 ## Installation
 
-In Obsidian go to `Settings > Third-party plugins > Community Plugins > Browse` and search for [`Better Export PDF`](obsidian://show-plugin?id=better-export-pdf).
+Use the local build or manual installation below. This renamed fork uses plugin ID `better-export`; a community listing under the new ID is not assumed.
 
 ### Manual installation
 
-1. Download the .zip file from [the latest Release](https://github.com/l1xnan/obsidian-better-export-pdf/releases), or from any other release version.
+1. Download the .zip file from [the latest Release](https://github.com/qian403/obsidian-better-export/releases), or from any other release version.
 2. Unzip into: `{VaultFolder}/.obsidian/plugins/`
 3. Reload Obsidian and enable the plug-in.
 
@@ -34,10 +34,10 @@ or use the [BRAT Plugin](https://obsidian.md/plugins?id=obsidian42-brat).
 ## Usage
 
 1. Select export target:
-   1. In the upper right corner of the current Markdown view, click More options and select `Better Export PDF`;
-   2. Open the command panel and select `Better Export PDF: Export Current File to PDF`.
+   1. In the upper right corner of the current Markdown view, click More options and select `Better Export`;
+   2. Open the command panel and select `Better Export: Export current file`.
 2. In the dialog box that is displayed, modify the configuration.
-3. Click `Export`, select the export path, and if you don't need to modify the configuration, you can directly press the `Enter` key to trigger the export operation.
+3. Choose an export format, click `Export`, and select the export path, and if you don't need to modify the configuration, you can directly press the `Enter` key to trigger the export operation.
 
 ### Set the header and footer
 
@@ -104,7 +104,7 @@ PDF Metadata can be added to through frontMatter of the configuration document. 
 
 Select the folder in the sidebar, right-click the menu `Export folder to PDF`, you can export the entire folder contents to a PDF file.
 
-Note: This does not guarantee the file export order.
+Notes are exported in relative-path order. A TOC note lets you specify a custom order.
 
 #### Custom export
 
@@ -124,7 +124,7 @@ toc: true
 
 This allows the plugin to export the notes in the order of the internal links. The anchor point of the exported PDF table of contents supports clicking to jump.
 
-**Note**: When exporting with a Table of Contents file, right click on that toc-file and select `Better Export PDF`. Do not use `Export Folder to PDF`.
+**Note**: When exporting with a Table of Contents file, right click on that toc-file and select `Better Export`. Do not use `Export Folder to PDF`.
 
 ### Folder batch export
 
@@ -138,6 +138,35 @@ In the export dialog, select `Custom` for **Page Size** and set **Margin** to `N
 
 **Note:** You can adjust the concurrency number during the rendering phase when exporting multiple files via `Plugin Settings > Limit Concurrency`. This can help reduce resource consumption or increase the speed. The default value is 5.
 
+## Export formats and annotations
+
+| Format | Content | Annotation behavior |
+| --- | --- | --- |
+| PDF | Print layout, bookmarks, metadata | Repeats on every page |
+| DOCX | Editable headings, lists, tables, links and images | Native Word footer on every page |
+| HTML | Standalone page with embedded local images | Repeats in print; optional offline Paged.js preview |
+| Markdown | Original source, optional file-name title and combined notes | Appended at the end |
+| TXT | UTF-8 text with readable lists and tables | Appended at the end |
+| RTF | Headings, emphasis, tables and links; image descriptions | Native page footer |
+
+In the export dialog, choose the format and enable bottom-left and/or bottom-right annotation text. Annotations are independent of the page-number footer. Page-based outputs reserve footer space automatically. Word does not use Obsidian theme CSS or PDF HTML header/footer templates; audio/video are not embedded in Word/RTF.
+
+Plugin settings include **Language** (follow Obsidian or choose one of three languages) and **Append linked notes**. Appendices collect directly linked Markdown notes once in link order, without recursively following appended notes. They apply to combined exports; batch exports keep each note separate. Batch outputs preserve relative subfolders to prevent duplicate filenames from overwriting one another.
+
+See [testing instructions](./TESTING.md) for the ready-to-open scratch vault and migration from `better-export-pdf` to `better-export`.
+
+## Development
+
+```sh
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm test:browser  # installed Chrome, or BETTER_EXPORT_BROWSER_PATH
+pnpm package
+```
+
+`pnpm package` produces `dist/obsidian-better-export.zip` and an isolated test-vault ZIP. `pnpm build` uses esbuild; `pnpm build:vite` writes an alternative build to `dist/vite`. The plugin folder is `better-export`.
+
 ## Preview
 
 ### Export preview
@@ -150,11 +179,11 @@ In the export dialog, select `Custom` for **Page Size** and set **Margin** to `N
 
 ## TODO
 
-- [ ] Automatically adds internal link content to footnotes/appendices;
-- [ ] Support pagedjs beautification;
+- [x] Optional direct-linked-note appendices (one hop, deduplicated);
+- [x] Offline Paged.js pagination for HTML exports;
 - [x] Support print preview;
-- [ ] Export multiple Markdown files into one PDF file;
-- [ ] Improves default `@media print` css style;
+- [x] Export multiple Markdown files into one PDF file;
+- [x] Improve default `@media print` styles (heading breaks, tables, images and code);
 - [x] Support add PDF metadata from front matter;
 - [x] Export internal links within file;
 

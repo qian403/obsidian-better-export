@@ -121,21 +121,41 @@ export const settingSlider: Action<
 // Button Action
 export const settingButton: Action<
   HTMLElement,
-  { text: string; cta?: boolean; hidden?: boolean; onClick: () => void }
+  { text: string; cta?: boolean; hidden?: boolean; disabled?: boolean; onClick: () => void }
 > = (node, params) => {
+  let buttonComponent: import("obsidian").ButtonComponent;
   const setting = new Setting(node).setHeading().addButton((button) => {
-    button.setButtonText(params.text).onClick(params.onClick);
+    buttonComponent = button;
+    button.setButtonText(params.text).setDisabled(params.disabled ?? false).onClick(() => params.onClick());
     if (params.cta) button.setCta();
     fullWidthButton(button.buttonEl);
   });
 
-  if (params.hidden) node.hidden = true;
+  node.hidden = params.hidden ?? false;
   promote(node, setting);
   return {
+    update(next) {
+      params = next;
+      buttonComponent.setButtonText(next.text).setDisabled(next.disabled ?? false);
+      node.hidden = next.hidden ?? false;
+    },
     destroy() {
       node.empty();
     },
   };
+};
+
+export const settingText: Action<HTMLElement, BaseSetting & {
+  value: string; placeholder?: string; onChange: (value: string) => void;
+}> = (node, params) => {
+  const setting = new Setting(node).setName(params.name);
+  if (params.desc) setting.setDesc(params.desc);
+  setting.addText((text) => {
+    text.setValue(params.value).setPlaceholder(params.placeholder ?? "").onChange((value) => params.onChange(value));
+    text.inputEl.style.width = "100%";
+  });
+  promote(node, setting);
+  return { update(next) { params = next; }, destroy() { node.empty(); } };
 };
 
 // 双输入框 Action (针对 Width/Height 或 Left/Right)
@@ -202,6 +222,12 @@ export function mountNode(node: HTMLElement, doc: any) {
     node.innerHTML = "";
 
     const child = newDoc.cloneNode(true);
+    const originalCanvases = newDoc.querySelectorAll("canvas");
+    child.querySelectorAll("canvas").forEach((canvas: HTMLCanvasElement, i: number) => {
+      canvas.width = originalCanvases[i].width;
+      canvas.height = originalCanvases[i].height;
+      canvas.getContext("2d")?.drawImage(originalCanvases[i], 0, 0);
+    });
     child.removeClass("theme-light");
     child.style.display = "block";
     node.appendChild(child);

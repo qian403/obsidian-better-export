@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import type BetterExportPdfPlugin from "../main";
+  import { onMount, onDestroy } from "svelte";
+  import type BetterExportPlugin from "../main";
   import type { ExportConfigType, ExportConfigModal, DocType } from "../modal";
-  import { TFile } from "obsidian";
+  import { TFile, Notice } from "obsidian";
+  import { getConcurrency } from "../utils/export";
+  import { formatMessage } from "../i18n";
+  import * as path from "path";
   import { getAllStyles, getPatchStyle, makeWebviewJs, renderMarkdown, type ParamType } from "../render";
   import * as electron from "electron";
-  import { px2mm, safeParseInt } from "../utils";
+  import { px2mm, sleep } from "../utils";
   import { fixDoc } from "../render";
   import { exportToPDF, getOutputFile, getOutputPath } from "../pdf";
   import { icon } from "../actions";
   import { initRenderStates, completeRenderState, type RenderState } from "../utils/renderStates";
   import { PageSizeCalculator } from "../utils/pageSize";
+  import { Mutex } from "../utils/mutex";
   import pLimit from "p-limit";
   const fs = require("fs").promises;
 
@@ -20,11 +24,16 @@
     config = $bindable(),
   }: {
     modal: ExportConfigModal;
-    plugin: BetterExportPdfPlugin;
+    plugin: BetterExportPlugin;
     config: ExportConfigType;
   } = $props();
 
   const settings = $derived(plugin.settings);
+  const i18n = $derived(modal.i18n);
+  let initialRender: Promise<void> | undefined;
+  const renderMutex = new Mutex();
+  let renderId = $state(0);
+  let disposed = false;
 
   // State
   let completed = $state(false);
@@ -34,7 +43,7 @@
   let previewEl = $state<HTMLDivElement>();
 
   let renderStates = $state<RenderState[]>([]);
-  const pageSizeCalc = new PageSizeCalculator(config);
+  const pageSizeCalc = new PageSizeCalculator(config, () => calcPageSize());
 
   export function calcPageSize() {
     if (!previewEl) return;
@@ -42,13 +51,12 @@
   }
 
   export async function calcWebviewSize() {
-    // @ts-ignore
     await sleep(500);
 
-    webviews.forEach(async (e, i) => {
+    await Promise.all(webviews.map(async (e, i) => {
       const [width, height] = await e.executeJavaScript("[document.body.offsetWidth, document.body.offsetHeight]");
       docs[i] = { ...docs[i], printSize: `${width}×${height}px²\n${px2mm(width)}×${px2mm(height)}mm²` };
-    });
+    }));
   }
 
   export async function handleChangeSize() {
@@ -57,7 +65,7 @@
   }
 
   async function renderFiles(data: ParamType[], allDocs?: any[], cb?: (i: number) => void) {
-    const concurrency = safeParseInt(settings.concurrency) || 5;
+    const concurrency = getConcurrency(settings.concurrency);
     const limit = pLimit(concurrency);
 
     const currentConfig = $state.snapshot(config);
@@ -66,46 +74,66 @@
 
     const inputs = data.map((param, i) =>
       limit(async () => {
-        const option = { ...param, config: currentConfig };
+        if (disposed) return;
+        const option = { ...param, config: currentConfig, i18n };
         const res = await renderMarkdown(option);
         cb?.(i);
         return res;
       }),
     );
-    let _docs = [...(allDocs ?? []), ...(await Promise.all(inputs))];
+    let _docs = [...(allDocs ?? []), ...(await Promise.all(inputs)).filter(Boolean)];
+    if (disposed) return [];
 
     if (modal.file instanceof TFile) {
       const leaf = modal.app.workspace.getLeaf();
       await leaf.openFile(modal.file);
     }
 
-    if (!modal.multiplePdf) {
+    if (!modal.multiplePdf && _docs.length > 0) {
       _docs = modal.mergeDoc(_docs);
     }
     return _docs.map(({ doc, ...rest }) => {
-      return { ...rest, doc: fixDoc(doc, doc.title) };
+      return { ...rest, doc: fixDoc(doc, doc.title, modal.app) };
     });
   }
 
-  export async function renderPreview(render = true) {
+  async function updatePreview(render = true) {
+    if (disposed) return;
     if (render) {
       const { data, docs: allDocs } = await modal.getAllFiles();
+      if (disposed) return;
       renderStates = initRenderStates(data);
-      docs = await renderFiles(data, allDocs, (i) => { renderStates = completeRenderState(renderStates, i); });
+      const rendered = await renderFiles(data, allDocs, (i) => { if (!disposed) renderStates = completeRenderState(renderStates, i); });
+      if (disposed) return;
+      docs = rendered;
     }
 
+    if (!render) docs = docs.map((item) => ({ ...item }));
     webviews = [];
 
     const promises = docs.map((docItem) => {
-      return new Promise<void>((resolve) => {
+      return new Promise<void>((resolve, reject) => {
         // @ts-ignore
         docItem.resolve = resolve;
+        // @ts-ignore runtime webview readiness hook
+        docItem.reject = reject;
       });
     });
 
+    renderId += 1;
     await Promise.all(promises);
     calcPageSize();
     await calcWebviewSize();
+  }
+
+  export function renderPreview(render = true) {
+    initialRender = renderMutex.run(() => updatePreview(render)).catch((error) => {
+      docs = [];
+      webviews = [];
+      console.error(error);
+      if (!disposed) new Notice(formatMessage(i18n.notices.renderFailed, { error: String(error) }));
+    });
+    return initialRender;
   }
 
   export function toggleTitle(value: boolean) {
@@ -123,38 +151,42 @@
     });
   }
 
-  export async function handlePrintToPDF() {
-    const title = (modal.file as TFile)?.basename ?? modal.file?.name;
+  export async function getDocuments(): Promise<DocType[]> {
+    await initialRender;
+    return disposed ? [] : docs;
+  }
 
+  export async function handlePrintToPDF() {
+    await initialRender;
+    if (disposed) return false;
+    if (!docs.length || !webviews.length) { new Notice(i18n.notices.noFiles); return false; }
+    const title = (modal.file as TFile)?.basename ?? modal.file.name;
     if (modal.multiplePdf) {
-      const outputPath = await getOutputPath(title);
-      if (outputPath) {
-        await Promise.all(
-          webviews.map(async (wb, i) => {
-            await exportToPDF(`${outputPath}/${docs[i].file.basename}.pdf`, { ...settings, ...config }, wb, docs[i]);
-          }),
-        );
-      }
-    } else {
-      const outputFile = await getOutputFile(title, settings.isTimestamp);
-      if (outputFile) {
-        await exportToPDF(outputFile, { ...settings, ...config }, webviews[0], docs[0]);
-      }
+      const outputPath = await getOutputPath(title, i18n);
+      if (!outputPath) return false;
+      const results = await Promise.all(webviews.map(async (wb, i) => {
+        const outfile = path.join(outputPath,
+          docs[i].file.path.slice(modal.file.path ? modal.file.path.length + 1 : 0).replace(/\.md$/, ".pdf"));
+        await fs.mkdir(path.dirname(outfile), { recursive: true });
+        return exportToPDF(outfile, { ...settings, ...config }, wb, docs[i], i18n);
+      }));
+      return results.every(Boolean);
     }
+    const outputFile = await getOutputFile(title, settings.isTimestamp, i18n);
+    return outputFile ? exportToPDF(outputFile, { ...settings, ...config }, webviews[0], docs[0], i18n) : false;
   }
 
   export function handleOpenDevTools() {
-    webviews?.[-1]?.openDevTools();
+    webviews[webviews.length - 1]?.openDevTools();
   }
 
   function initWebviewEvents(preview: electron.WebviewTag, docObj: any) {
     webviews.push(preview);
 
     const handler = async () => {
+      try {
       completed = true;
-      getAllStyles().forEach(async (css) => {
-        await preview.insertCSS(css);
-      });
+      await Promise.all(getAllStyles().map((css) => preview.insertCSS(css)));
       if (config.cssSnippet && config.cssSnippet != "0") {
         try {
           const cssSnippet = await fs.readFile(config.cssSnippet, { encoding: "utf8" });
@@ -166,12 +198,13 @@
         }
       }
       await preview.executeJavaScript(makeWebviewJs(docObj.doc));
-      getPatchStyle().forEach(async (css) => {
-        await preview.insertCSS(css);
-      });
+      await Promise.all(getPatchStyle().map((css) => preview.insertCSS(css)));
       if (docObj.resolve) {
         docObj.resolve();
+        delete docObj.resolve;
+        delete docObj.reject;
       }
+      } catch (error) { docObj.reject?.(error); }
     };
 
     preview.addEventListener("dom-ready", handler);
@@ -179,16 +212,22 @@
     return {
       destroy() {
         preview.removeEventListener("dom-ready", handler);
+        docObj.reject?.(new Error("Export dialog closed"));
       },
     };
   }
+
+  onDestroy(() => { disposed = true; });
 
   onMount(() => {
     if (!previewEl) return;
     pageSizeCalc.startObserver(previewEl);
 
     // Initial render
-    renderPreview(true);
+    initialRender = renderPreview(true).catch((error) => {
+      console.error(error);
+      if (!disposed) new Notice(formatMessage(i18n.notices.renderFailed, { error: String(error) }));
+    });
 
     return () => {
       pageSizeCalc.stopObserver();
@@ -199,7 +238,7 @@
 <div class="print-preview">
   <div class="progress">
     {#if renderStates.length > 0 && !renderStates.every((item) => item.status)}
-      <div>Rendering...</div>
+      <div>{i18n.exportDialog.rendering}</div>
       {#each renderStates as item}
         <div>
           {#if item.status}
@@ -213,7 +252,7 @@
     {/if}
   </div>
   <div bind:this={previewEl}>
-    {#each docs as item, i}
+    {#each docs as item, i (`${renderId}:${i}`)}
       {#if modal.multiplePdf}
         <div class="filename">{i + 1}-{item.doc.title}</div>
       {/if}

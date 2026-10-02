@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "noEmit": true,
     "inlineSourceMap": true,
     "inlineSources": true,
     "module": "ESNext",
@@ -15,5 +16,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
   },
-  "include": ["**/*.ts", "**/*.svelte", "vite.config.mjs"]
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
 }

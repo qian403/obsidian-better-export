@@ -1,3 +1,19 @@
+# Development
+
+Use Node.js 22 or newer and pnpm 10.
+
+```sh
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm test:browser
+pnpm package
+```
+
+The main build is esbuild (`pnpm build`, output `main.js`); the alternative Vite build writes into `dist/vite`. `pnpm package` creates the plugin ZIP and an isolated test vault. Browser QA artifacts are kept under `artifacts/browser-qa` and are ignored by Git.
+
+## Obsidian rendering notes
+
 
 
 

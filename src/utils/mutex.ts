@@ -11,3 +11,6 @@ export class Mutex {
     return result;
   }
 }
+
+// Obsidian prints the active window; serialize requests across export dialogs.
+export const printMutex = new Mutex();

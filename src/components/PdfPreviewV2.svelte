@@ -1,83 +1,90 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import type BetterExportPdfPlugin from "../main";
+  import type BetterExportPlugin from "../main";
   import type { ExportConfigType, ExportConfigModal, DocType, FileListType, DocV2Type } from "../modal";
-  import { Notice, TFile } from "obsidian";
+  import { Notice, TFile, loadPdfJs } from "obsidian";
   import { fixDocV2, printToPdf, renderMarkdownV2 } from "../render";
   import * as electron from "electron";
-  import { getHeadingTree, safeParseInt } from "../utils";
+  import { getHeadingTree, safeParseInt, px2mm, sleep } from "../utils";
+  import { getConcurrency } from "../utils/export";
+  import { errorMessage, formatMessage } from "../i18n";
   import pLimit from "p-limit";
   import { icon, mountCanvas, mountNode } from "../actions";
   const fs = require("fs").promises;
-  import { loadPdfJs } from "obsidian";
   import * as os from "os";
   import * as path from "path";
   import { editPDF, getOutputFile, getOutputPath, makePrintOptions, writePdfFile } from "../pdf";
   import Switch from "./Switch.svelte";
-  import { Mutex } from "../utils/mutex";
+  import { Mutex, printMutex } from "../utils/mutex";
   import { initRenderStates, completeRenderState, type RenderState } from "../utils/renderStates";
   import { PageSizeCalculator } from "../utils/pageSize";
- import { px2mm } from "../utils";
 
-  let {
-    modal,
-    plugin,
-    config = $bindable(),
-  }: {
+  let { modal, plugin, config = $bindable() }: {
     modal: ExportConfigModal;
-    plugin: BetterExportPdfPlugin;
+    plugin: BetterExportPlugin;
     config: ExportConfigType;
   } = $props();
 
   const settings = $derived(plugin.settings);
+  const i18n = $derived(modal.i18n);
   let isPDF = $state(false);
   let rendering = $state(false);
-
-  // State
   let renderStates = $state<RenderState[]>([]);
   let scale = $state(0.75);
   let previewEl = $state<HTMLDivElement>();
   let docs = $state<DocType[]>([]);
   let previewSizes = $state<{ width: number; height: number }[]>([]);
   let canvasDocs = $state<HTMLCanvasElement[]>([]);
-  let pdfCaches = $state<Record<string, string[]>>({});
-  let preConfig = $state.snapshot(config);
+  let disposed = false;
+  let lastPdfKey = "";
+  let revision = 0;
+  let initialRender: Promise<void> | undefined;
+  const resources = new Set<DocV2Type>();
+  const previewMutex = new Mutex();
+  const pageSizeCalc = new PageSizeCalculator(config, () => calcPageSize());
 
-  const printOptions = $derived(makePrintOptions({ ...settings, ...config }));
-  const pageSizeCalc = new PageSizeCalculator(config);
+  function reportError(error: unknown) {
+    console.error(error);
+    if (!disposed) new Notice(formatMessage(i18n.notices.renderFailed, { error: errorMessage(error, i18n) }));
+  }
 
   export function calcPageSize() {
-    if (!previewEl) return;
-    scale = pageSizeCalc.calc(previewEl);
+    if (previewEl) scale = pageSizeCalc.calc(previewEl);
   }
-  export async function handleChangeSize() {
-    await calcPageSize();
-  }
+  export async function handleChangeSize() { calcPageSize(); }
 
-  async function renderFiles(data: FileListType, cb?: (i: number) => void) {
-    const concurrency = safeParseInt(settings.concurrency) || 5;
-    const limit = pLimit(concurrency);
-    console.debug("file list data:", data);
-    const inputs = data.map((param, i) =>
-      limit(async () => {
-        const res = await renderMarkdownV2({
-          app: modal.app,
-          file: param.file,
-          config,
-        });
-        cb?.(i);
-        return res;
-      }),
-    );
-    let _docs = [...(await Promise.all(inputs))] as DocV2Type[];
-
-    console.debug(_docs, modal.multiplePdf);
-
-    if (!modal.multiplePdf && _docs.length > 1) {
-      _docs = modal.mergeDocV2(_docs);
+  async function renderFiles(data: FileListType) {
+    const limit = pLimit(getConcurrency(settings.concurrency));
+    const results = await Promise.allSettled(data.map((param, i) => limit(async () => {
+      if (disposed) return;
+      const result = await renderMarkdownV2({ app: modal.app, file: param.file, config, i18n });
+      if (disposed) { result.cleanup(); return; }
+      resources.add(result);
+      renderStates = completeRenderState(renderStates, i);
+      return result;
+    })));
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") {
+      results.forEach((result) => {
+        if (result.status === "fulfilled" && result.value) {
+          resources.delete(result.value);
+          result.value.cleanup();
+        }
+      });
+      throw failure.reason;
     }
-    return _docs.map(({ doc, ...rest }) => {
-      return { ...rest, doc: fixDocV2(doc, doc.title) as HTMLDivElement };
+    let rendered = results.flatMap((result) =>
+      result.status === "fulfilled" && result.value ? [result.value] : []);
+    if (disposed) return [];
+    if (!modal.multiplePdf && rendered.length > 1) {
+      rendered.forEach((item) => resources.delete(item));
+      rendered = modal.mergeDocV2(rendered);
+      rendered.forEach((item) => resources.add(item));
+    }
+    return rendered.map(({ doc, ...rest }) => {
+      fixDocV2(doc, rest.file.basename, modal.app);
+      doc.style.display = "none";
+      return { ...rest, doc };
     });
   }
 
@@ -85,32 +92,26 @@
     if (render) {
       const { data } = await modal.getAllFilesV2();
       renderStates = initRenderStates(data);
-      docs = await renderFiles(data, (i) => {
-        renderStates = completeRenderState(renderStates, i);
-      });
+      docs = await renderFiles(data);
+      revision += 1;
+      lastPdfKey = "";
     }
-
     calcPageSize();
   }
 
-  export async function toggleTitle(value: boolean) {
-    docs = docs.map(({ doc, ...rest }) => {
-      const _title = doc?.querySelector("h1.__title__") as HTMLHeadingElement;
-      if (_title) {
-        _title.style.display = value ? "block" : "none";
-      }
-      return { doc, ...rest };
-    });
-
-    previewEl?.querySelectorAll("h1.__title__").forEach((el: HTMLHeadElement) => {
+  export function toggleTitle(value: boolean) {
+    for (const { doc } of docs) {
+      doc.querySelectorAll<HTMLElement>("h1.__title__").forEach((el) => {
+        el.style.display = value ? "block" : "none";
+      });
+    }
+    previewEl?.querySelectorAll<HTMLElement>("h1.__title__").forEach((el) => {
       el.style.display = value ? "block" : "none";
     });
   }
 
   function measurePreviewItem(el: HTMLElement, index: number) {
-    const measure = () => {
-      previewSizes[index] = { width: el.offsetWidth, height: el.offsetHeight };
-    };
+    const measure = () => { previewSizes[index] = { width: el.offsetWidth, height: el.offsetHeight }; };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
@@ -118,263 +119,147 @@
   }
 
   onMount(() => {
-    if (!previewEl) return;
-    pageSizeCalc.startObserver(previewEl);
-
-    // Initial render
-    renderPreview(true);
-
-    return () => {
-      pageSizeCalc.stopObserver();
-    };
+    if (previewEl) pageSizeCalc.startObserver(previewEl);
+    initialRender = renderPreview(true).catch(reportError);
   });
 
   onDestroy(() => {
-    // 只清理当前组件内部的 .print 元素
-    document.querySelectorAll(".print").forEach((el) => el.remove());
-  });
-
-  $effect(() => {
-    console.debug("config:", $state.snapshot(config));
-  });
-
-  const mutex = new Mutex();
-
-  export async function exportToPDF({
-    el,
-    outputFile,
-    title,
-    onlyPreview = false,
-  }: {
-    el: HTMLDivElement;
-    outputFile: string;
-    title: string;
-    onlyPreview?: boolean;
-  }) {
-    console.debug("printOptions:", printOptions);
-    const pdfOptions = {
-      ...printOptions,
-      filepath: outputFile,
-    };
-
-    try {
-      await mutex.run(async () => {
-        // 防止标题污染, 同一时间只有一个PDF被渲染
-        document.title = title;
-        await printToPdf(el, pdfOptions);
-      });
-    } catch (error: any) {
-      console.error(error);
-      const code = error?.code as string | undefined;
-      if (code === "EBUSY" || code === "EPERM" || code === "EACCES") {
-        new Notice("无法覆盖 PDF：文件可能正在被其他程序打开，请关闭后重试。");
-      } else {
-        new Notice(`导出 PDF 失败：${error?.message ?? error}`);
-      }
-      return;
-    }
-    if (onlyPreview) {
-      return;
-    }
-
-    let data = await fs.readFile(outputFile);
-
-    data = await editPDF(data, {
-      headings: getHeadingTree(el as unknown as Document),
-      frontMatter: docs[0].frontMatter,
-      displayMetadata: settings?.displayMetadata,
-      maxLevel: safeParseInt(settings?.maxLevel, 6),
+    disposed = true;
+    pageSizeCalc.stopObserver();
+    // Wait for any active print operation before unloading Markdown components.
+    void printMutex.run(async () => {
+      resources.forEach((item) => item.cleanup());
+      resources.clear();
+      canvasDocs = [];
     });
+  });
 
-    const saved = await writePdfFile(outputFile, data);
-    if (!saved) {
-      return;
-    }
-    if (config.open) {
-      // @ts-ignore
-      electron.remote.shell.openPath(outputFile);
-    }
+  async function printDocs(outfiles: string[], onlyPreview = false, cb?: (file: string) => Promise<void>) {
+    const configSnapshot = $state.snapshot(config);
+    return printMutex.run(async () => {
+      if (disposed) return false;
+      const currentTitle = document.title;
+      try {
+        for (const [i, outfile] of outfiles.entries()) {
+          if (disposed) return false;
+          const { doc, file, frontMatter } = docs[i];
+          const el = doc as HTMLDivElement;
+          el.style.display = "block";
+          el.dataset.betterExportActive = "true";
+          document.title = file.basename;
+          try {
+            await sleep(200);
+            const printed = await printToPdf(el, makePrintOptions({ ...settings, ...configSnapshot }, frontMatter));
+            if (!onlyPreview) {
+              let data = printed;
+              data = await editPDF(data, {
+                headings: getHeadingTree(el), frontMatter,
+                displayMetadata: settings.displayMetadata, maxLevel: safeParseInt(settings.maxLevel, 6),
+              });
+              if (!await writePdfFile(outfile, data, i18n)) return false;
+              if (configSnapshot.open) {
+                // @ts-ignore Obsidian exposes Electron remote on desktop.
+                await electron.remote.shell.openPath(outfile);
+              }
+            }
+            if (onlyPreview) await fs.writeFile(outfile, printed);
+            await cb?.(outfile);
+          } finally {
+            el.style.display = "none";
+            delete el.dataset.betterExportActive;
+          }
+        }
+        return true;
+      } finally {
+        document.title = currentTitle;
+      }
+    });
   }
 
-  export async function printDocs({
-    docs,
-    outfiles,
-    cb,
-    onlyPreview,
-  }: {
-    docs: DocType[];
-    outfiles: string[];
-    cb?: any;
-    onlyPreview?: boolean;
-  }) {
-    const currentTitle = document.title;
-
-    docs.forEach(({ doc }) => {
-      (doc as HTMLElement).style.display = "none";
-    });
-
-    for (const [i, outfile] of outfiles.entries()) {
-      const { doc, file } = docs[i] as { doc: HTMLDivElement; file: TFile };
-      const title = file.basename;
-      doc.style.display = "block";
-      await sleep(200);
-
-      await exportToPDF({ el: doc, outputFile: outfile, title, onlyPreview });
-      doc.style.display = "none";
-      if (cb) {
-        await cb(outfile);
-      }
-    }
-    document.title = currentTitle;
+  export async function getDocuments(): Promise<DocType[]> {
+    await initialRender;
+    return disposed ? [] : docs;
   }
 
   export async function handlePrintToPDF() {
-    const title = (modal.file as TFile)?.basename ?? modal.file?.name;
-
-    const files = [];
+    await initialRender;
+    if (disposed) return false;
+    if (!docs.length) { new Notice(i18n.notices.noFiles); return false; }
+    const title = (modal.file as TFile)?.basename ?? modal.file.name;
     if (modal.multiplePdf) {
-      const outputPath = await getOutputPath(title);
-      if (!outputPath) {
-        return false;
-      }
-      files.push(...docs.map((item) => `${outputPath}/${item.file.basename}.pdf`));
-    } else {
-      const outputFile = await getOutputFile(title, settings.isTimestamp);
-      if (!outputFile) {
-        return false;
-      }
-      files.push(outputFile);
+      const outputPath = await getOutputPath(title, i18n);
+      if (!outputPath) return false;
+      // Preserve relative folders so equally named notes never overwrite each other.
+      const outfiles = docs.map(({ file }) => path.join(outputPath,
+        file.path.slice(modal.file.path ? modal.file.path.length + 1 : 0).replace(/\.md$/, ".pdf")));
+      for (const file of outfiles) await fs.mkdir(path.dirname(file), { recursive: true });
+      return printDocs(outfiles);
     }
-
-    await printDocs({ docs, outfiles: files });
-    return true;
+    const outputFile = await getOutputFile(title, settings.isTimestamp, i18n);
+    return outputFile ? printDocs([outputFile]) : false;
   }
 
   async function renderPdf() {
-    // 1. 加载 PDF.js 库
-    rendering = true;
-
-    const pdfjsLib = await loadPdfJs();
-    const tempDir = os.tmpdir();
-
-    let numPages = 0;
-
-    async function renderCanvas(tmpfile: string) {
-      // 2. 读取文件为 ArrayBuffer
-      const content = await fs.readFile(tmpfile);
-
-      // // 3. 加载文档
-      const loadingTask = pdfjsLib.getDocument({ data: content });
-      const pdf = await loadingTask.promise;
-
-      console.debug("loading tmp file", pdf.numPages);
-
-      // 4. 循环处理每一页
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-
-        // 创建 Canvas 节点
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-
-        const viewport = page.getViewport({ scale: 5 }); // 设置缩放
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-
-        // 渲染到 Canvas
-        await page.render({
-          canvasContext: context,
-          viewport: viewport,
-        }).promise;
-
-        // 5. 更新或追加
-        if (numPages < canvasDocs.length) {
-          canvasDocs[numPages] = canvas; // 覆盖已有位置
-        } else {
-          canvasDocs.push(canvas); // 追加新元素
+    return previewMutex.run(async () => {
+      await initialRender;
+      if (disposed || !docs.length) return;
+      const key = JSON.stringify({ config: $state.snapshot(config), revision });
+      if (key === lastPdfKey) return;
+      rendering = true;
+      let tempDir: string | undefined;
+      const canvases: HTMLCanvasElement[] = [];
+      try {
+        const pdfjsLib = await loadPdfJs();
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "obsidian-better-export-"));
+        const tempFiles = docs.map((_, i) => path.join(tempDir!, `${i}.pdf`));
+        const success = await printDocs(tempFiles, true, async (file) => {
+          if (disposed) return;
+          const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(await fs.readFile(file)) });
+          try {
+            const pdf = await loadingTask.promise;
+            for (let i = 1; i <= pdf.numPages && !disposed; i++) {
+              const page = await pdf.getPage(i);
+              const canvas = document.createElement("canvas");
+              const viewport = page.getViewport({ scale: Math.min(2, window.devicePixelRatio || 1.5) });
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+              canvases.push(canvas);
+              page.cleanup();
+            }
+          } finally {
+            await loadingTask.destroy();
+          }
+        });
+        if (success && !disposed) {
+          canvasDocs = canvases;
+          lastPdfKey = key;
         }
-        numPages += 1;
+      } catch (error) {
+        reportError(error);
+      } finally {
+        if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(console.error);
+        rendering = false;
       }
-    }
-
-    const key = JSON.stringify(config);
-    if (!pdfCaches[key]) {
-      // 生成一个唯一的文件名
-
-      const tempFiles = docs.map(({ file }) =>
-        path.join(tempDir, `obsidian-temp-${file.path.replace(/[/\\]/g, "_")}-${Date.now()}.pdf`),
-      );
-      console.debug("tempFiles", tempFiles);
-
-      await printDocs({ docs, outfiles: tempFiles, cb: renderCanvas, onlyPreview: true });
-
-      pdfCaches[key] = tempFiles;
-    } else {
-      console.debug(key, pdfCaches[key]);
-      for (const file of pdfCaches[key]) {
-        await renderCanvas(file);
-      }
-    }
-    canvasDocs.length = numPages;
-    rendering = false;
-
-    console.debug("loaded tmp canvas pages:", numPages);
+    });
   }
 
   export function handleOpenDevTools() {
-    // @ts-ignore
-    const c = document.win.electron.remote.getCurrentWebContents();
-    c.openDevTools();
+    // @ts-ignore Obsidian's desktop window API.
+    document.win.electron.remote.getCurrentWebContents().openDevTools();
   }
 
   async function toggleModel(model: string) {
-    if (model === "pdf") {
-      isPDF = true;
-      await renderPdf();
-      rendering = false;
-    } else {
-      isPDF = false;
-    }
+    isPDF = model === "pdf";
+    if (isPDF) await renderPdf();
   }
 
   $effect(() => {
-    const current = $state.snapshot(config);
-    const changes = [];
-
-    const keys = [
-      "pageSize",
-      "scale",
-      "landscape",
-      "marginBottom",
-      "marginLeft",
-      "marginRight",
-      "marginTop",
-      "marginType",
-      "displayHeader",
-      "displayFooter",
-      "showTitle",
-    ];
-
-    for (const _key of keys) {
-      const key = _key as keyof ExportConfigType;
-      if (current?.[key] != preConfig?.[key]) {
-        changes.push({ key, oldValue: preConfig[key], newValue: current[key] });
-      }
-    }
-
-    if (changes.length == 0) {
-      return;
-    }
-    preConfig = current;
-
+    // Read config reactively, but keep canvas/rendering state out of dependencies.
+    const key = JSON.stringify(config);
+    if (config.format !== "pdf") { isPDF = false; return; }
     if (!isPDF) return;
-
-    rendering = true;
-    const timer = setTimeout(async () => {
-      await renderPdf();
-      rendering = false;
-    }, 300);
-
+    const timer = setTimeout(() => { void renderPdf(); }, 300);
     return () => clearTimeout(timer);
   });
 </script>
@@ -382,7 +267,7 @@
 <div class="print-preview">
   <div class="progress">
     {#if renderStates.length > 0 && !renderStates.every((item) => item.status)}
-      <div>Rendering...</div>
+      <div>{i18n.exportDialog.rendering}</div>
       {#each renderStates as item}
         <div>
           {#if item.status}
@@ -398,10 +283,12 @@
   {#if rendering}
     <div class="rendering">
       <span use:icon={"loader"} style="animation: spin 1s linear infinite;max-width:18px;max-height:18px;"></span>
-      <span>Rendering</span>
+      <span>{i18n.exportDialog.rendering}</span>
     </div>
   {/if}
-  <Switch initialMode="html" onChange={toggleModel}></Switch>
+  {#if config.format === "pdf"}
+  <Switch initialMode="html" onChange={toggleModel} htmlLabel={i18n.exportDialog.htmlPreview} pdfLabel={i18n.exportDialog.pdfPreview}></Switch>
+  {/if}
   <div bind:this={previewEl}>
     <div class="preview-wrapper">
       <div class="print-preview-container" style="--modal-scale: {scale};" style:display={isPDF ? "none" : "block"}>

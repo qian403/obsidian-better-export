@@ -1,4 +1,4 @@
-#better-export-pdf {
+#better-export {
   display: flex;
   flex-direction: row;
   height: 75vh;
@@ -21,7 +21,7 @@
   }
 }
 
-#better-export-pdf .print-preview {
+#better-export .print-preview {
   .webview-wrapper {
     position: relative;
     height: 100%;
@@ -62,7 +62,7 @@
   }
 }
 
-#better-export-pdf {
+#better-export {
   .print-preview-container {
     .print-preview-item {
       border: 1px solid var(--background-modifier-border, #f2f2f2);
@@ -117,5 +117,46 @@
     background: 0 0 !important;
     text-decoration: initial !important;
     text-shadow: initial !important;
+  }
+}
+
+@media print {
+  .print h1, .print h2, .print h3, .print h4, .print h5, .print h6 {
+    break-after: avoid-page;
+  }
+  .print p { orphans: 3; widows: 3; }
+  .print table { break-inside: auto; width: 100%; }
+  .print thead { display: table-header-group; }
+  .print tfoot { display: table-footer-group; }
+  .print tr { break-inside: avoid; }
+  .print img, .print svg { max-width: 100%; height: auto; }
+  .print pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .print .break-page { break-before: page; }
+}
+
+#better-export .setting-wrapper {
+  overflow-y: auto;
+  padding-right: 8px;
+  flex: 0 0 320px;
+}
+#better-export .export-section-title {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin: 16px 0 4px;
+  font-weight: var(--font-semibold);
+}
+#better-export .export-format-description {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin: 4px 0 12px;
+}
+#better-export .annotation-text input { width: 100%; }
+@media (max-width: 900px) {
+  #better-export .setting-wrapper { flex-basis: 260px; width: 260px; }
+}
+
+@media print {
+  body > .print[data-better-export-root]:not([data-better-export-active]) {
+    display: none !important;
   }
 }

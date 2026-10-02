@@ -1,15 +1,16 @@
 import { App, MarkdownView, Menu, Plugin, type PluginManifest, TFile, TFolder } from "obsidian";
-import i18n, { type Lang } from "./i18n";
+import { getTranslations, isLanguageSetting, type LanguageSetting, type Lang } from "./i18n";
+import * as obsidian from "obsidian";
 import { ExportConfigModal, type ExportConfigType } from "./modal";
 import ConfigSettingTab from "./setting";
 import { traverseFolder } from "./utils";
-const fs = require("fs").promises;
-import path from "path";
 
 const isDev = process.env.NODE_ENV === "development";
 
-export interface BetterExportPdfPluginSettings {
+export interface BetterExportPluginSettings {
   prevConfig?: ExportConfigType;
+  language: LanguageSetting;
+  includeLinkedNotes: boolean;
 
   showTitle: boolean;
   maxLevel: string;
@@ -31,7 +32,9 @@ export interface BetterExportPdfPluginSettings {
   version: string;
 }
 
-const DEFAULT_SETTINGS: BetterExportPdfPluginSettings = {
+const DEFAULT_SETTINGS: BetterExportPluginSettings = {
+  language: "auto",
+  includeLinkedNotes: false,
   showTitle: true,
   maxLevel: "6",
 
@@ -51,13 +54,23 @@ const DEFAULT_SETTINGS: BetterExportPdfPluginSettings = {
   version: "2",
 };
 
-export default class BetterExportPdfPlugin extends Plugin {
-  settings: BetterExportPdfPluginSettings;
-  i18n: Lang;
+export default class BetterExportPlugin extends Plugin {
+  settings: BetterExportPluginSettings = { ...DEFAULT_SETTINGS };
+  get i18n(): Lang {
+    // getLanguage was introduced in Obsidian 1.8.7; support older versions too.
+    let appLanguage: string | null = "en";
+    try {
+      appLanguage = typeof obsidian.getLanguage === "function"
+        ? obsidian.getLanguage()
+        : window.localStorage.getItem("language");
+    } catch {
+      // Storage may be unavailable in a restricted window.
+    }
+    return getTranslations(this.settings?.language ?? "auto", appLanguage);
+  }
 
   constructor(app: App, manifest: PluginManifest) {
     super(app, manifest);
-    this.i18n = i18n.current;
   }
 
   async onload() {
@@ -70,7 +83,7 @@ export default class BetterExportPdfPlugin extends Plugin {
 
   registerCommand() {
     this.addCommand({
-      id: "export-current-file-to-pdf",
+      id: "export-current-file",
       name: this.i18n.exportCurrentFile,
       checkCallback: (checking: boolean) => {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -86,23 +99,7 @@ export default class BetterExportPdfPlugin extends Plugin {
         return true;
       },
     });
-    // this.addCommand({
-    //   id: "better-export-pdf:with-prev-setting",
-    //   name: this.i18n.exportCurrentFileWithPrevious,
-    //   checkCallback: (checking: boolean) => {
-    //     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    //     const file = view?.file;
-    //     if (!file) {
-    //       return false;
-    //     }
-    //     if (checking) {
-    //       return true;
-    //     }
-    //     new ExportConfigModal(this, file, this.settings?.prevConfig).open();
 
-    //     return true;
-    //   },
-    // });
   }
 
   registerSetting() {
@@ -113,8 +110,10 @@ export default class BetterExportPdfPlugin extends Plugin {
   registerEvents() {
     // Register the Export As HTML button in the file menu
     this.registerEvent(
-      this.app.workspace.on("file-menu", (menu, file: TFile | TFolder) => {
-        let title = file instanceof TFolder ? "Export folder to PDF" : "Better Export PDF";
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!(file instanceof TFile) && !(file instanceof TFolder)) return;
+        if (file instanceof TFile && file.extension !== "md") return;
+        let title = file instanceof TFolder ? this.i18n.menu.exportFolder : this.i18n.menu.exportFile;
         if (isDev) {
           title = `${title} (dev)`;
         }
@@ -131,9 +130,11 @@ export default class BetterExportPdfPlugin extends Plugin {
       }),
     );
     this.registerEvent(
-      this.app.workspace.on("file-menu", (menu, file: TFile | TFolder) => {
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!(file instanceof TFile) && !(file instanceof TFolder)) return;
+        if (file instanceof TFile && file.extension !== "md") return;
         if (file instanceof TFolder) {
-          let title = "Export to PDF...";
+          let title = this.i18n.menu.exportOptions;
           if (isDev) {
             title = `${title} (dev)`;
           }
@@ -143,7 +144,7 @@ export default class BetterExportPdfPlugin extends Plugin {
             const subMenu: Menu = item.setSubmenu();
             subMenu.addItem((item) =>
               item
-                .setTitle("Export each file to PDF")
+                .setTitle(this.i18n.menu.exportEachFile)
                 .setIcon("lucide-file-stack")
                 .onClick(async () => {
                   new ExportConfigModal(this, file, true).open();
@@ -151,7 +152,7 @@ export default class BetterExportPdfPlugin extends Plugin {
             );
             subMenu.addItem((item) =>
               item
-                .setTitle("Generate TOC.md file")
+                .setTitle(this.i18n.menu.generateToc)
                 .setIcon("lucide-file-text")
                 .onClick(async () => {
                   await this.generateToc(file);
@@ -163,63 +164,29 @@ export default class BetterExportPdfPlugin extends Plugin {
     );
   }
 
-  async generateToc(root: TFolder | TFile) {
-    // @ts-ignore
-    const basePath = this.app.vault.adapter.basePath;
-    const toc = path.join(basePath, root.path, "_TOC_.md");
-    const content = `---\ntoc: true\ntitle: ${root.name}\n---\n`;
-    await fs.writeFile(toc, content);
-    if (root instanceof TFolder) {
-      const files = traverseFolder(root);
-      for (const file of files) {
-        if (file.name == "_TOC_.md") {
-          continue;
-        }
-        await fs.appendFile(toc, `[[${file.path}]]\n`);
-      }
+  async generateToc(root: TFolder) {
+    const tocPath = `${root.path ? root.path + "/" : ""}_TOC_.md`;
+    const links = traverseFolder(root)
+      .filter((file) => file.path !== tocPath)
+      .map((file) => `[[${file.path}]]`);
+    const content = `---\ntoc: true\ntitle: ${JSON.stringify(root.name)}\n---\n${links.join("\n")}\n`;
+    const existing = this.app.vault.getAbstractFileByPath(tocPath);
+    if (existing instanceof TFile) {
+      await this.app.vault.modify(existing, content);
+    } else {
+      await this.app.vault.create(tocPath, content);
     }
   }
 
   onunload() {}
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    if (!isLanguageSetting(this.settings.language)) this.settings.language = "auto";
+    if (!/^[1-9]\d*$/.test(this.settings.concurrency)) this.settings.concurrency = "5";
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
   }
 
-  changeConfig() {
-    // @ts-ignore
-    const theme = "obsidian" === this.app.vault?.getConfig("theme");
-    if (theme) {
-      document.body.addClass("theme-light");
-      document.body.removeClass("theme-dark");
-    }
-    document.body.removeClass("theme-dark");
-    const node = document.body.createDiv("print");
-
-    const reset = function () {
-      node.detach();
-      if (theme) {
-        document.body.removeClass("theme-light");
-        document.body.addClass("theme-dark");
-      }
-      // t.hide();
-    };
-    node.addEventListener("click", reset);
-
-    const el = document.body.createDiv("print");
-
-    const el2 = el.createDiv("markdown-preview-view markdown-rendered");
-
-    // @ts-ignore
-    el2.toggleClass("rtl", this.app.vault.getConfig("rightToLeft"));
-    // @ts-ignore
-    el2.toggleClass("show-frontmatter", this.app.vault.getConfig("showFrontmatter"));
-
-    el2.createEl("h1", {
-      text: "xxxxx", // a.basename
-    });
-  }
 }

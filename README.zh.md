@@ -1,8 +1,8 @@
-# Obsidian Better Export PDF
+# Obsidian Better Export
 
-[English](./README.md) | 中文
+[English](./README.md) | 简体中文 | [繁體中文](./README.zh-TW.md)
 
-Better Export PDF 是一个 Obsidian PDF 导出增强插件，与官方的 PDF 导出功能相比，增加了导出预览、导出书签大纲和给 PDF 添加页码等功能。
+Better Export 是一个 Obsidian 多格式导出插件，支持 PDF、DOCX、HTML、Markdown、TXT 和 RTF，提供导出预览、合并与批量导出、多语言以及页脚标注。
 
 ## 功能
 
@@ -21,11 +21,11 @@ Better Export PDF 是一个 Obsidian PDF 导出增强插件，与官方的 PDF �
 
 ## 安装
 
-在官方商店中搜索 [`Better Export PDF`](obsidian://show-plugin?id=better-export-pdf) 安装。
+请使用本地构建或下方的手动安装方法。新版外掛 ID 为 `better-export`，此分支尚不假定已上架社群商店。
 
 ### 手动安装
 
-1. 在 [Release](https://github.com/l1xnan/obsidian-better-export-pdf/releases) 页面，下载 zip 包
+1. 在 [Release](https://github.com/qian403/obsidian-better-export/releases) 页面，下载 zip 包
 2. 解压到: `{VaultFolder}/.obsidian/plugins/`
 3. 重启 Obdisian，并再插件管理器中启用插件。
 
@@ -34,8 +34,8 @@ Better Export PDF 是一个 Obsidian PDF 导出增强插件，与官方的 PDF �
 ## 使用
 
 1. 选择导出目标：
-   - 在当前 Markdown 视图的右上角，点击更多选项，选择 `Better Export PDF`；
-   - 打开命令面板，选择 `Better Export PDF: Export Current File to PDF`；
+   - 在当前 Markdown 视图的右上角，点击更多选项，选择 `Better Export`；
+   - 打开命令面板，选择 `Better Export: Export current file`；
    - 在文件树中，右键文件夹选择`Export folder to PDF`。
 2. 在弹出对话框中，修改相关配置。
 3. 点击`Export`，选择导出路径，如果不用修改配置，可以直接按 `Enter` 键，触发导出操作。
@@ -144,7 +144,7 @@ Better Export PDF 是一个 Obsidian PDF 导出增强插件，与官方的 PDF �
 
 #### 快速导出
 
-侧边栏选择文件夹，右键选择菜单 `Export folder to PDF`，即可将整个文件夹内容导出到一个 PDF 文件中，这样不保证文件导出顺序；
+侧边栏选择文件夹，右键选择菜单 `Export folder to PDF`，即可将整个文件夹内容导出到一个 PDF 文件中，按照文件的相对路径排序导出；
 
 #### 自定义导出
 
@@ -176,6 +176,28 @@ toc: true
 
 **注意:** 你可以通过`插件设置 > 限制并发数` 调整多文件导出时渲染阶段的并发数量，以此来减少资源消耗，或者提高速度，默认为 `5`。
 
+## 多格式导出与页脚标注
+
+支持 PDF、DOCX、HTML、Markdown、TXT 与 RTF。在导出窗口选择格式，再打开左下角／右下角标注开关并填写文字。
+
+PDF、DOCX、RTF 的标注在每页重复；HTML 打印时重复，也可开启离线 Paged.js 分页预览。Markdown 与 TXT 没有固定页面，标注放在文档末尾。DOCX 保留标题、清单、表格、超链接与可读取的图片；RTF 以图片描述代替图片。DOCX 不套用主题 CSS 或 PDF 专用 HTML 页眉／页脚模板。
+
+设置中可选择 English、简体中文、繁體中文或跟随 Obsidian。开启「附加链接笔记」后，会按链接顺序附加直接链接的 Markdown 笔记，去重且不递归追踪附录里的链接，仅适用于合并导出。批量导出保留子文件夹，避免同名笔记互相覆盖。
+
+参见 [测试与安装说明](./TESTING.md)。旧版 ID `better-export-pdf` 已更名为 `better-export`；如需旧设置，请复制旧外掛文件夹的 `data.json`。
+
+## 开发
+
+```sh
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm test:browser
+pnpm package
+```
+
+安装包位于 `dist/obsidian-better-export.zip`，另有独立测试 Vault。Vite 构建输出到 `dist/vite`。
+
 ## 效果
 
 ### 导出预览
@@ -188,8 +210,8 @@ toc: true
 
 ## TODO
 
-- [ ] 将内部链接内容自动添加到脚注/附录中；
-- [ ] 支持 pagedjs 美化；
+- [x] 可选的直接链接笔记附录（单层、去重）；
+- [x] HTML 导出支持离线 Paged.js 分页；
 - [x] 支持打印预览；
 - [x] 多个 Markdown 合并打印到一个 PDF 文件中；
 - [x] 完善默认 `@media print` css 样式；

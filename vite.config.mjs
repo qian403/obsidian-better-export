@@ -1,14 +1,16 @@
+import { pagedScriptPath } from "./scripts/raw-plugin.mjs";
 import { defineConfig } from "vite";
 import builtins from "builtin-modules";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
-const outDir = "";
+const outDir = "dist/vite";
 
 export default defineConfig(({ mode }) => ({
+  resolve: { alias: [{ find: /^pagedjs-polyfill\?raw$/, replacement: `${pagedScriptPath}?raw` }] },
   plugins: [
     svelte({
-      css: "injected",
+      compilerOptions: { css: "injected" },
       emitCss: false,
     }),
     writeObsidianAssets(),
@@ -28,6 +30,7 @@ export default defineConfig(({ mode }) => ({
 
     rolldownOptions: {
       external: [
+        "node:fs/promises",
         "obsidian",
         "electron",
         "@codemirror/autocomplete",
@@ -55,6 +58,7 @@ export default defineConfig(({ mode }) => ({
         "@lezer/highlight",
         "@lezer/lr",
         ...builtins,
+        ...builtins.map((name) => `node:${name}`),
       ],
       watch: {
         include: "src/**",
@@ -83,6 +87,7 @@ function writeObsidianAssets() {
       };
       manifest.version = pkg.version;
       this.emitFile({ type: "asset", fileName: ".hotReload", source: "" });
+      this.emitFile({ type: "asset", fileName: "styles.css", source: readFileSync(resolve(process.cwd(), "styles.css")) });
       this.emitFile({
         type: "asset",
         fileName: "manifest.json",

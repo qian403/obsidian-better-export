@@ -1,4 +1,5 @@
 import builtins from "builtin-modules";
+import { rawPlugin } from "./scripts/raw-plugin.mjs";
 import * as esbuild from "esbuild";
 import process from "process";
 import esbuildSvelte from "esbuild-svelte";
@@ -19,6 +20,7 @@ const context = await esbuild.context({
   entryPoints: ["src/main.ts"],
   bundle: true,
   plugins: [
+    rawPlugin,
     esbuildSvelte({
       compilerOptions: { css: "injected" },
       preprocess: sveltePreprocess(),
@@ -26,6 +28,7 @@ const context = await esbuild.context({
     }),
   ],
   external: [
+    "node:*",
     "obsidian",
     "electron",
     "@codemirror/autocomplete",
@@ -46,6 +49,7 @@ const context = await esbuild.context({
   logLevel: "info",
   sourcemap: prod ? false : "inline",
   treeShaking: true,
+  minify: prod,
   outfile: "main.js",
   define: {
     "process.env.NODE_ENV": prod ? "'production'" : "'development'",
@@ -54,7 +58,7 @@ const context = await esbuild.context({
 
 if (prod) {
   await context.rebuild();
-  process.exit(0);
+  await context.dispose();
 } else {
   await context.watch();
 }

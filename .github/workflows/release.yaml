@@ -1,20 +1,16 @@
-name: Build obsidian plugin
+name: Build Better Export
 
 on:
   workflow_dispatch:
 
   push:
-    # Sequence of patterns matched against refs/tags
     tags:
-      - "*" # Push events to matching any tag format, i.e. 1.0, 20.15.10
-
-env:
-  PLUGIN_NAME: obsidian-better-export-pdf # Change this to the name of your plugin-id folder
+      - "*"
 
 jobs:
   build:
     permissions:
-      contents: write  
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -24,7 +20,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24 # You might need to adjust this value to your own version
+          node-version: 24
 
       - uses: pnpm/action-setup@v6
         name: Install pnpm
@@ -37,7 +33,7 @@ jobs:
         run: |
           echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v5
         name: Setup pnpm cache
         with:
           path: ${{ env.STORE_PATH }}
@@ -46,17 +42,10 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: ELECTRON_SKIP_BINARY_DOWNLOAD=1 && pnpm install
+        run: ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --frozen-lockfile
 
-      - name: Build
-        id: build
-        run: |
-          pnpm build:vite
-          mkdir ${{ env.PLUGIN_NAME }}
-          cp main.js styles.css manifest.json ${{ env.PLUGIN_NAME }}
-          zip -r ${{ env.PLUGIN_NAME }}.zip ${{ env.PLUGIN_NAME }}
-          ls
-          echo "::set-output name=tag_name::$(git tag --sort version:refname | tail -n 1)"
+      - name: Check, test and package
+        run: pnpm package
 
       - name: Release
         uses: softprops/action-gh-release@v3
@@ -65,16 +54,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           name: ${{ github.ref_name }}
-          tag_name: ${{ github.ref }}
-          body: ${{steps.generate_changelog.outputs.changelog}}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
           files: |
             main.js
             styles.css
             manifest.json
-            ./${{ env.PLUGIN_NAME }}.zip
-
-      - name: Generate Changelog
-        id: generate_changelog
-        run: npx changelogithub
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            dist/obsidian-better-export.zip
+            dist/obsidian-better-export-test-vault.zip

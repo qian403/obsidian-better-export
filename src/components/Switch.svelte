@@ -2,7 +2,7 @@
   import { icon } from "../actions";
   import { untrack } from "svelte";
 
-  let { onChange, initialMode = "html" } = $props();
+  let { onChange, initialMode = "html", htmlLabel = "HTML preview", pdfLabel = "PDF preview" } = $props();
 
   let mode = $state(untrack(() => $state.snapshot(initialMode)));
 
@@ -15,11 +15,11 @@
 </script>
 
 <div class="toggle-container">
-  <button class:active={mode === "html"} onclick={() => setMode("html")}>
+  <button title={htmlLabel} aria-label={htmlLabel} aria-pressed={mode === "html"} class:active={mode === "html"} onclick={() => setMode("html")}>
     <span use:icon={"globe"} class="icon"></span>
     <span style:margin-left="2px">HTML</span>
   </button>
-  <button class:active={mode === "pdf"} onclick={() => setMode("pdf")}>
+  <button title={pdfLabel} aria-label={pdfLabel} aria-pressed={mode === "pdf"} class:active={mode === "pdf"} onclick={() => setMode("pdf")}>
     <span use:icon={"notebook"} class="icon"></span>
     <span style:margin-left="2px">PDF</span>
   </button>

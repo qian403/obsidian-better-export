@@ -14,8 +14,9 @@ export class PageSizeCalculator {
 
   /** 计算缩放比例，使预览宽度匹配目标页面宽度 */
   calc(previewEl: HTMLDivElement): number {
-    const { pageSize, pageWidth } = this.config;
-    const width = PageSize?.[pageSize as string]?.[0] ?? safeParseFloat(pageWidth as string, 210);
+    const { pageSize, pageWidth, pageHeight, landscape } = this.config;
+    const width = PageSize?.[pageSize as string]?.[landscape ? 1 : 0] ?? safeParseFloat(landscape ? pageHeight : pageWidth, 210);
+    if (!previewEl.offsetWidth || !Number.isFinite(width) || width <= 0) return 1;
     return Math.floor((mm2px(width) / previewEl.offsetWidth) * 100) / 100;
   }
 
