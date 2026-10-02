@@ -218,11 +218,8 @@ pnpm package
 - [x] 支持将文档属性添加到 PDF 元数据中；
 - [x] 保留文档内链接跳转；
 
-## 赞助
+## 社区
 
-如果这个插件帮到了您，请点击 Star 或者我喝一杯奶茶吧！
+由 [qian403](https://github.com/qian403) 维护。欢迎前往 [GitHub 仓库](https://github.com/qian403/obsidian-better-export) 点 Star，或[反馈问题与提出建议](https://github.com/qian403/obsidian-better-export/issues)。
 
-<div align="center">
-<img src="./assets/sponsor-chat.png" width="300px"/>
-<img src="./assets/sponsor-alipay.png" width="300px"/>
-</div>
+本项目基于 [l1xnan 的 Better Export PDF](https://github.com/l1xnan/obsidian-better-export-pdf)，保留原作者授权。

@@ -4,8 +4,7 @@
   "version": "2.0.3",
   "minAppVersion": "0.15.0",
   "description": "Export notes to PDF, DOCX, HTML, Markdown, text and RTF with previews and customizable footer annotations.",
-  "author": "l1xnan",
-  "authorUrl": "https://github.com/l1xnan",
-  "fundingUrl": "https://www.buymeacoffee.com/l1xnan",
+  "author": "qian403",
+  "authorUrl": "https://github.com/qian403",
   "isDesktopOnly": true
 }

@@ -8,17 +8,6 @@ function setAttributes(element: HTMLTextAreaElement, attributes: { [x: string]: 
   }
 }
 
-export const renderBuyMeACoffeeBadge = (contentEl: HTMLElement | DocumentFragment, width = 175, label = "Buy me a coffee") => {
-  const linkEl = contentEl.createEl("a", {
-    href: "https://www.buymeacoffee.com/l1xnan",
-  });
-  const imgEl = linkEl.createEl("img");
-  imgEl.src =
-    "https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=nathangeorge&button_colour=6a8696&font_colour=ffffff&font_family=Poppins&outline_colour=000000&coffee_colour=FFDD00";
-  imgEl.alt = label;
-  imgEl.width = width;
-};
-
 export default class ConfigSettingTab extends PluginSettingTab {
   plugin: BetterExportPlugin;
   i18n: Lang;
@@ -53,7 +42,10 @@ export default class ConfigSettingTab extends PluginSettingTab {
       text: this.i18n.settings.support,
     });
     new Setting(containerEl).setDesc(supportDesc);
-    renderBuyMeACoffeeBadge(containerEl, 175, this.i18n.settings.donate);
+    containerEl.createEl("a", {
+      href: "https://github.com/qian403/obsidian-better-export",
+      text: this.i18n.settings.community,
+    });
     new Setting(containerEl).setName(this.i18n.settings.version).addDropdown((dropdown) => {
       dropdown
         .addOptions(Object.fromEntries(["1", "2"].map((v) => [v, `v${v}`])))

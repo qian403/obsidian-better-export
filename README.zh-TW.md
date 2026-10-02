@@ -51,4 +51,8 @@ pnpm package
 
 瀏覽器測試預設使用已安裝的 Chrome，也可透過 `BETTER_EXPORT_BROWSER_PATH` 指定 Chromium。`pnpm build` 使用 esbuild；`pnpm build:vite` 輸出到 `dist/vite`。
 
-本專案延伸自 [l1xnan 的 Better Export PDF](https://github.com/l1xnan/obsidian-better-export-pdf)，保留原作者授權與贊助資訊。
+## 社群
+
+由 [qian403](https://github.com/qian403) 維護。歡迎前往 [GitHub 儲存庫](https://github.com/qian403/obsidian-better-export) 點 Star，或[回報問題與提出建議](https://github.com/qian403/obsidian-better-export/issues)。
+
+本專案延伸自 [l1xnan 的 Better Export PDF](https://github.com/l1xnan/obsidian-better-export-pdf)，保留原作者授權。
